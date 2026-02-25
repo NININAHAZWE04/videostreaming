@@ -1,0 +1,9 @@
+# Compiled classes
+bin/**/*.class
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
