@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply m-0 bg-sand font-body text-ink;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.hero-bg {
+  background:
+    radial-gradient(circle at 15% 20%, rgba(10, 126, 164, 0.25), transparent 38%),
+    radial-gradient(circle at 90% 8%, rgba(222, 107, 72, 0.22), transparent 35%),
+    linear-gradient(155deg, #f7f4ed 0%, #eef5f7 100%);
+}
+
+.glass-panel {
+  @apply rounded-2xl border border-white/80 bg-white/85 shadow-panel backdrop-blur;
+}
+
+.badge {
+  @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold;
+}
+
+.badge-ok {
+  @apply badge bg-emerald-100 text-emerald-800;
+}
+
+.badge-err {
+  @apply badge bg-red-100 text-red-700;
+}

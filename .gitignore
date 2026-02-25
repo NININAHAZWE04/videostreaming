@@ -1,6 +1,10 @@
 # Compiled classes
 bin/**/*.class
 
+# Frontend artifacts
+web/node_modules/
+web/dist/
+
 # IDE
 .idea/
 .vscode/

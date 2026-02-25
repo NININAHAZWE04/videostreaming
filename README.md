@@ -1,55 +1,97 @@
-# Video Streaming (Java RMI + HTTP)
+# VideoStreaming Platform
 
-Projet de streaming vidéo local basé sur:
-- un **service d'annuaire RMI** (`Diary`) qui publie les vidéos disponibles,
-- un ou plusieurs **serveurs HTTP de streaming** (un par vidéo),
-- un **client GUI** qui découvre les flux et lance la lecture via VLC.
+Plateforme de streaming vidéo en Java avec une expérience complète:
+- backend RMI + HTTP pour publier des flux vidéo,
+- applications Swing Provider/Client,
+- frontend web moderne React + Tailwind pour la visibilité et le monitoring.
+
+## Pourquoi ce projet
+- Découvrir une architecture distribuée simple (RMI + HTTP).
+- Publier des vidéos localement et les consommer en réseau.
+- Offrir deux UX: Desktop (Swing) et Web (Dashboard moderne).
+
+## Stack technique
+- Java 21 (RMI, sockets HTTP, Swing)
+- Bash scripts pour build/run
+- API HTTP locale Java (`DiaryApiServer`)
+- React 18 + Vite + Tailwind CSS (frontend web)
+
+## Architecture rapide
+1. `DiaryServer`: annuaire RMI des vidéos disponibles.
+2. `StreamingServer`: un serveur HTTP par vidéo.
+3. `ClientGui`: consomme le Diary et ouvre VLC.
+4. `DiaryApiServer`: expose `/api/videos` pour le frontend web.
+5. `web/`: dashboard moderne pour visualiser les flux.
 
 ## Prérequis
-- Linux/macOS (scripts Bash)
+- Linux/macOS
 - JDK 21+
-- VLC installé et disponible via la commande `vlc`
+- VLC (`vlc` dans le `PATH`)
+- Node.js 20+ et npm (pour le frontend)
 
-## Démarrage rapide
-1. Rendre les scripts exécutables:
+## Démarrage backend (desktop)
+1. Préparer le projet:
 ```bash
 ./setup.sh
 ```
 
-2. Lancer le Diary:
+2. Terminal 1 - Diary:
 ```bash
 ./start-diary.sh localhost 1099
 ```
 
-3. Lancer le serveur de streaming (GUI):
+3. Terminal 2 - Provider GUI:
 ```bash
 ./start-streaming-server.sh
 ```
 
-4. Lancer le client (GUI):
+4. Terminal 3 - Client GUI:
 ```bash
 ./start-client.sh
 ```
 
-## Scripts
-- `./build.sh`: compile toutes les sources Java dans `bin/`
-- `./clean.sh`: supprime les `.class`
-- `./start-diary.sh [host] [port]`: démarre le registre et le service RMI
-- `./start-streaming-server.sh`: ouvre l'interface provider
-- `./start-client.sh`: ouvre l'interface client
+## Démarrage web moderne
+1. Terminal 4 - API Web Java:
+```bash
+./start-web-api.sh localhost 1099 8080
+```
 
-## Structure du projet
-- `src/diary`: API et implémentation RMI
-- `src/server`: serveur HTTP de streaming
-- `src/server/gui`: GUI provider
-- `src/client/gui`: GUI client
-- `docs/`: documentation d'architecture et d'exploitation
+2. Terminal 5 - Frontend:
+```bash
+./start-web-frontend.sh
+```
+
+3. Ouvrir `http://localhost:5173`.
+
+## Scripts backend
+- `./build.sh`: compile toutes les classes Java
+- `./clean.sh`: supprime les classes compilées
+- `./start-diary.sh [host] [port]`
+- `./start-streaming-server.sh`
+- `./start-client.sh`
+- `./start-web-api.sh [diaryHost] [diaryPort] [apiPort]`
+- `./start-web-frontend.sh`
+
+## Structure du repository
+- `src/diary/`: contrat et implémentation RMI
+- `src/server/`: serveur HTTP streaming
+- `src/server/api/`: API HTTP pour frontend
+- `src/server/gui/`: interface provider Swing
+- `src/client/gui/`: interface client Swing
+- `web/`: frontend React + Tailwind
+- `docs/`: documentation technique et exploitation
 
 ## Documentation
 - [Architecture](docs/ARCHITECTURE.md)
 - [Guide d'exploitation](docs/OPERATIONS.md)
+- [Frontend Web](docs/FRONTEND.md)
+- [Contribuer](CONTRIBUTING.md)
 
-## Notes techniques
-- Le serveur HTTP supporte les requêtes `Range` (`206 Partial Content`) pour le seeking.
-- Les validations d'entrée (ports, hôtes, titres, accessibilité fichier) sont renforcées.
-- Le service Diary retourne la liste des vidéos de manière triée et stable.
+## Contribution
+Les issues, idées d'amélioration, correctifs et pull requests sont les bienvenus.
+**Toute contribution est la bienvenue.**
+
+## Roadmap courte
+- API write (`POST`) pour piloter certaines actions depuis le web.
+- Authentification simple pour un usage réseau élargi.
+- Packaging Docker pour déploiement rapide.
