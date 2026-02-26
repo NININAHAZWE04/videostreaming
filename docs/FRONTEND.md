@@ -9,6 +9,7 @@ Fournir une interface moderne et responsive pour visualiser les flux publiés pa
 - Configuration dynamique de l'URL API.
 - Auto-refresh (5s) activable/désactivable.
 - Ouverture directe d'un flux (`http://host:port`).
+- Affichage de miniatures réelles (`thumbnailUrl`) extraites depuis le film.
 
 ## Prérequis
 - Node.js 20+
@@ -33,4 +34,4 @@ npm run preview
 
 ## API attendue
 - `GET /api/health`
-- `GET /api/videos` -> `{ count, videos: [{ title, host, port, url }] }`
+- `GET /api/videos` -> `{ count, videos: [{ title, host, port, url, thumbnailUrl }] }`

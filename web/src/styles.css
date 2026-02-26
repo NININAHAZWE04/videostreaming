@@ -2,37 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light;
+@layer base {
+  body {
+    @apply antialiased;
+  }
 }
 
-body {
-  @apply m-0 bg-sand font-body text-ink;
+/* Scrollbar personnalisée style "Stream" */
+::-webkit-scrollbar {
+  width: 8px;
 }
 
-#root {
-  min-height: 100vh;
+::-webkit-scrollbar-track {
+  @apply bg-[#0f172a];
 }
 
-.hero-bg {
-  background:
-    radial-gradient(circle at 15% 20%, rgba(10, 126, 164, 0.25), transparent 38%),
-    radial-gradient(circle at 90% 8%, rgba(222, 107, 72, 0.22), transparent 35%),
-    linear-gradient(155deg, #f7f4ed 0%, #eef5f7 100%);
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-700 rounded-full hover:bg-indigo-500 transition-colors;
 }
 
-.glass-panel {
-  @apply rounded-2xl border border-white/80 bg-white/85 shadow-panel backdrop-blur;
+/* Animation douce pour l'apparition des éléments */
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-out forwards;
 }
 
-.badge {
-  @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold;
-}
-
-.badge-ok {
-  @apply badge bg-emerald-100 text-emerald-800;
-}
-
-.badge-err {
-  @apply badge bg-red-100 text-red-700;
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }

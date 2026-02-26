@@ -5,6 +5,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.ServerSocket;
@@ -23,6 +24,10 @@ import java.util.regex.Pattern;
 
 /**
  * Serveur de streaming d'un fichier vidéo via HTTP (avec support des requêtes Range).
+ *
+ * Endpoints:
+ * - / ou /stream: flux vidéo
+ * - /thumbnail: image JPEG extraite du film (nécessite ffmpeg)
  */
 public class StreamingServer {
     private static final Pattern RANGE_PATTERN = Pattern.compile("bytes=(\\d*)-(\\d*)", Pattern.CASE_INSENSITIVE);
@@ -34,6 +39,7 @@ public class StreamingServer {
     private final String diaryHost;
     private final int diaryPort;
     private final String streamingHost;
+    private final Object thumbnailLock = new Object();
 
     private volatile boolean running;
     private ServerSocket serverSocket;
@@ -152,6 +158,8 @@ public class StreamingServer {
                 return;
             }
 
+            String path = extractPath(requestTokens[1]);
+
             String rangeHeader = null;
             String line;
             while ((line = reader.readLine()) != null && !line.isEmpty()) {
@@ -164,6 +172,16 @@ public class StreamingServer {
                 if ("range".equalsIgnoreCase(headerName)) {
                     rangeHeader = headerValue;
                 }
+            }
+
+            if ("/thumbnail".equals(path)) {
+                serveThumbnail(out);
+                return;
+            }
+
+            if (!"/".equals(path) && !"/stream".equals(path)) {
+                sendError(out, 404, "Not Found");
+                return;
             }
 
             long fileLength = videoFile.length();
@@ -186,6 +204,132 @@ public class StreamingServer {
                 System.err.println("Erreur lors du streaming: " + e.getMessage());
             }
         }
+    }
+
+    private String extractPath(String rawTarget) {
+        if (rawTarget == null || rawTarget.isBlank()) {
+            return "/";
+        }
+        String target = rawTarget.trim();
+        if (target.startsWith("http://") || target.startsWith("https://")) {
+            int slashIdx = target.indexOf('/', target.indexOf("://") + 3);
+            target = slashIdx >= 0 ? target.substring(slashIdx) : "/";
+        }
+        int qIdx = target.indexOf('?');
+        if (qIdx >= 0) {
+            target = target.substring(0, qIdx);
+        }
+        if (target.isEmpty()) {
+            target = "/";
+        }
+        return target;
+    }
+
+    private void serveThumbnail(OutputStream out) throws IOException {
+        File thumbnailFile = ensureThumbnailFile();
+        if (thumbnailFile == null || !thumbnailFile.exists() || thumbnailFile.length() == 0) {
+            sendError(out, 503, "Thumbnail Unavailable (ffmpeg requis)");
+            return;
+        }
+
+        String header = "HTTP/1.1 200 OK\r\n"
+            + "Content-Type: image/jpeg\r\n"
+            + "Cache-Control: public, max-age=300\r\n"
+            + "Connection: close\r\n"
+            + "Content-Length: " + thumbnailFile.length() + "\r\n\r\n";
+
+        out.write(header.getBytes(StandardCharsets.US_ASCII));
+
+        try (FileInputStream fis = new FileInputStream(thumbnailFile)) {
+            byte[] buffer = new byte[BUFFER_SIZE];
+            int read;
+            while ((read = fis.read(buffer)) != -1) {
+                out.write(buffer, 0, read);
+            }
+            out.flush();
+        }
+    }
+
+    private File ensureThumbnailFile() {
+        synchronized (thumbnailLock) {
+            File cacheFile = thumbnailCacheFile();
+
+            if (cacheFile.exists() && cacheFile.length() > 0 && cacheFile.lastModified() >= videoFile.lastModified()) {
+                return cacheFile;
+            }
+
+            File cacheDir = cacheFile.getParentFile();
+            if (cacheDir != null && !cacheDir.exists() && !cacheDir.mkdirs()) {
+                System.err.println("[StreamingServer] Impossible de créer le dossier thumbnail: " + cacheDir);
+                return null;
+            }
+
+            boolean extracted = extractFrameWithFfmpeg(cacheFile, "00:00:10")
+                || extractFrameWithFfmpeg(cacheFile, "00:00:01");
+
+            if (!extracted) {
+                return null;
+            }
+
+            return cacheFile;
+        }
+    }
+
+    private boolean extractFrameWithFfmpeg(File outputFile, String seekTime) {
+        ProcessBuilder pb = new ProcessBuilder(
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-ss",
+            seekTime,
+            "-i",
+            videoFile.getAbsolutePath(),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "3",
+            outputFile.getAbsolutePath()
+        );
+        pb.redirectErrorStream(true);
+
+        try {
+            Process process = pb.start();
+            String ffmpegOut;
+            try (InputStream processOut = process.getInputStream()) {
+                ffmpegOut = new String(processOut.readAllBytes(), StandardCharsets.UTF_8);
+            }
+
+            boolean finished = process.waitFor(20, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                System.err.println("[StreamingServer] Timeout ffmpeg pour thumbnail");
+                return false;
+            }
+
+            if (process.exitValue() != 0) {
+                if (!ffmpegOut.isBlank()) {
+                    System.err.println("[StreamingServer] ffmpeg: " + ffmpegOut.trim());
+                }
+                return false;
+            }
+
+            return outputFile.exists() && outputFile.length() > 0;
+        } catch (IOException e) {
+            System.err.println("[StreamingServer] ffmpeg indisponible: " + e.getMessage());
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private File thumbnailCacheFile() {
+        String safeName = videoTitle.replaceAll("[^a-zA-Z0-9._-]", "_");
+        String signature = Integer.toHexString((videoFile.getAbsolutePath() + "|" + videoFile.length() + "|" + videoFile.lastModified()).hashCode());
+        File cacheDir = new File(System.getProperty("java.io.tmpdir"), "videostreaming-thumbnails");
+        return new File(cacheDir, safeName + "-" + signature + ".jpg");
     }
 
     private void validateVideoFile() {

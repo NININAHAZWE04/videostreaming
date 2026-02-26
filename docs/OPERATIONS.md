@@ -60,6 +60,10 @@ Terminal 5 - Frontend:
 4. VLC ne se lance pas
 - Installer VLC et vérifier la commande `vlc`.
 
+5. Miniatures non affichées dans le dashboard web
+- Vérifier que `ffmpeg` est installé et accessible via `ffmpeg -version`.
+- Vérifier l'endpoint miniature: `http://<host>:<port>/thumbnail`.
+
 ## Bonnes pratiques
 - Utiliser des titres vidéo uniques.
 - Réserver une plage de ports de streaming (ex: `5000+`).

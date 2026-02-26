@@ -27,6 +27,7 @@ Plateforme de streaming vidéo en Java avec une expérience complète:
 - Linux/macOS
 - JDK 21+
 - VLC (`vlc` dans le `PATH`)
+- FFmpeg (`ffmpeg` dans le `PATH`) pour générer les miniatures depuis des scènes du film
 - Node.js 20+ et npm (pour le frontend)
 
 ## Démarrage backend (desktop)
