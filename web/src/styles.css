@@ -3,30 +3,132 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
   body {
-    @apply antialiased;
+    @apply antialiased bg-netflix-black text-white;
+    font-family: 'Manrope', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   }
 }
 
-/* Scrollbar personnalisée style "Stream" */
+/* ─── Netflix-style scrollbar ─────────────────────────── */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 4px;
+  height: 4px;
 }
-
 ::-webkit-scrollbar-track {
-  @apply bg-[#0f172a];
+  background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  @apply bg-slate-700 rounded-full hover:bg-indigo-500 transition-colors;
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.45);
 }
 
-/* Animation douce pour l'apparition des éléments */
-.animate-fade-in {
-  animation: fadeIn 0.5s ease-out forwards;
+/* ─── Hide horizontal scrollbar for rows ─────────────── */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }
 
+/* ─── Skeleton shimmer animation ─────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #2f2f2f 0%,
+    #3a3a3a 40%,
+    #2f2f2f 80%
+  );
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite linear;
+}
+
+@keyframes shimmer {
+  0%   { background-position: -1000px 0; }
+  100% { background-position:  1000px 0; }
+}
+
+/* ─── Hero vignette bottom fade ──────────────────────── */
+.hero-vignette {
+  background: linear-gradient(
+    to top,
+    #141414 0%,
+    rgba(20, 20, 20, 0.5) 40%,
+    transparent 100%
+  );
+}
+
+/* ─── Hero vignette side fade ────────────────────────── */
+.hero-vignette-side {
+  background: linear-gradient(
+    to right,
+    rgba(20, 20, 20, 0.95) 30%,
+    rgba(20, 20, 20, 0.5) 60%,
+    transparent 100%
+  );
+}
+
+/* ─── Card hover: reveal overlay ─────────────────────── */
+.card-overlay {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.group:hover .card-overlay {
+  opacity: 1;
+}
+
+/* ─── Row cards: Netflix-style hover expand ──────────── */
+.video-card {
+  transition: transform 0.3s ease, box-shadow 0.3s ease, z-index 0s 0.3s;
+  z-index: 1;
+}
+.video-card:hover {
+  transform: scale(1.08);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.9);
+  z-index: 10;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* ─── Navbar gradient ─────────────────────────────────── */
+.nav-gradient {
+  background: linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 100%);
+}
+
+/* ─── Modal backdrop ──────────────────────────────────── */
+.modal-backdrop {
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(6px);
+}
+
+/* ─── Live badge pulse ────────────────────────────────── */
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+.live-pulse {
+  animation: livePulse 1.8s ease-in-out infinite;
+}
+
+/* ─── Fade-in animation ───────────────────────────────── */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+/* ─── Slide-up animation ──────────────────────────────── */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+.animate-slide-up {
+  animation: slideUp 0.5s ease-out forwards;
 }
