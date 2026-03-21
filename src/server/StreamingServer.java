@@ -1,6 +1,13 @@
 package server;
 
+import common.AppLogger;
+import db.DatabaseManager;
+import db.VideoMetadata;
+import db.VideoRepository;
+import db.StatsRepository;
 import diary.Diary;
+import server.api.AdminApiServer;
+import server.sse.SseEventBus;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -15,23 +22,29 @@ import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.security.MessageDigest;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Serveur de streaming d'un fichier vidéo via HTTP (avec support des requêtes Range).
- *
- * Endpoints:
- * - / ou /stream: flux vidéo
- * - /thumbnail: image JPEG extraite du film (nécessite ffmpeg)
+ * Serveur de streaming d'un fichier vidéo via HTTP.
+ * Améliorations : persistance H2, stats de vues, rate limiting, SSE, AppLogger.
  */
 public class StreamingServer {
+    private static final String LOG = "StreamingServer";
     private static final Pattern RANGE_PATTERN = Pattern.compile("bytes=(\\d*)-(\\d*)", Pattern.CASE_INSENSITIVE);
-    private static final int BUFFER_SIZE = 8192;
+    private static final int BUFFER_SIZE = 65536; // 64KB for better throughput
+
+    // Global active stream counter (shared across instances)
+    private static final AtomicInteger globalActiveCount = new AtomicInteger(0);
 
     private final File videoFile;
     private final String videoTitle;
@@ -40,6 +53,14 @@ public class StreamingServer {
     private final int diaryPort;
     private final String streamingHost;
     private final Object thumbnailLock = new Object();
+    private final int maxConnectionsPerIp;
+
+    // Rate limiting: IP -> active connection count
+    private final Map<String, AtomicInteger> ipConnectionCounts = new ConcurrentHashMap<>();
+    // Stats
+    private final AtomicLong totalBytesServed = new AtomicLong(0);
+    private final AtomicInteger activeConnections = new AtomicInteger(0);
+    private volatile int databaseId = -1;
 
     private volatile boolean running;
     private ServerSocket serverSocket;
@@ -59,6 +80,7 @@ public class StreamingServer {
         this.diaryHost = normalizeNonEmpty(diaryHost, "diaryHost");
         this.diaryPort = validatePort(diaryPort, "diaryPort");
         this.streamingHost = normalizeNonEmpty(streamingHost, "streamingHost");
+        this.maxConnectionsPerIp = common.AppConfig.get().getMaxConnectionsPerIp();
     }
 
     public synchronized void start() throws Exception {
@@ -67,14 +89,23 @@ public class StreamingServer {
         }
         validateVideoFile();
 
+        // Extract & persist metadata via ffprobe
+        persistMetadata();
+
         registerInDiary();
 
         running = true;
         pool = Executors.newCachedThreadPool();
+        globalActiveCount.incrementAndGet();
+        AdminApiServer.setActiveStreamCount(globalActiveCount.get());
 
         Thread serverThread = new Thread(this::acceptLoop, "streaming-server-" + streamingPort);
         serverThread.setDaemon(true);
         serverThread.start();
+
+        // Notify SSE clients
+        SseEventBus.get().publishStreamStarted(videoTitle,
+            "http://" + streamingHost + ":" + streamingPort);
     }
 
     public synchronized void stop() {
@@ -89,10 +120,13 @@ public class StreamingServer {
                 serverSocket.close();
             }
         } catch (IOException e) {
-            System.err.println("Erreur lors de la fermeture du socket serveur: " + e.getMessage());
+            AppLogger.warn(LOG, "Erreur fermeture socket: " + e.getMessage());
         } finally {
             stopPool();
-            System.out.println("[StreamingServer] Serveur arrêté");
+            globalActiveCount.decrementAndGet();
+            AdminApiServer.setActiveStreamCount(globalActiveCount.get());
+            SseEventBus.get().publishStreamStopped(videoTitle);
+            AppLogger.info(LOG, "Serveur arrêté: " + videoTitle);
         }
     }
 
@@ -111,22 +145,18 @@ public class StreamingServer {
     private void acceptLoop() {
         try {
             serverSocket = new ServerSocket(streamingPort);
-            System.out.println("[StreamingServer] En écoute sur le port " + streamingPort + " pour: " + videoTitle);
+            AppLogger.info(LOG, "En écoute port " + streamingPort + " — " + videoTitle);
 
             while (running) {
                 try {
                     Socket clientSocket = serverSocket.accept();
                     pool.submit(() -> handleClient(clientSocket));
                 } catch (IOException e) {
-                    if (running) {
-                        System.err.println("Erreur lors de l'acceptation du client: " + e.getMessage());
-                    }
+                    if (running) AppLogger.warn(LOG, "Erreur acceptation: " + e.getMessage());
                 }
             }
         } catch (IOException e) {
-            if (running) {
-                System.err.println("Erreur lors du démarrage du serveur HTTP: " + e.getMessage());
-            }
+            if (running) AppLogger.error(LOG, "Erreur démarrage HTTP: " + e.getMessage());
         } finally {
             stopPool();
         }
@@ -134,8 +164,24 @@ public class StreamingServer {
 
     private void handleClient(Socket clientSocket) {
         String clientIp = clientSocket.getInetAddress().getHostAddress();
-        System.out.println("[StreamingServer] Client connecté: " + clientIp);
 
+        // Rate limiting
+        AtomicInteger ipCount = ipConnectionCounts.computeIfAbsent(clientIp, k -> new AtomicInteger(0));
+        if (ipCount.incrementAndGet() > maxConnectionsPerIp) {
+            ipCount.decrementAndGet();
+            AppLogger.warn(LOG, "Rate limit atteint pour IP: " + clientIp);
+            try {
+                OutputStream out = clientSocket.getOutputStream();
+                sendError(out, 429, "Too Many Requests");
+                clientSocket.close();
+            } catch (IOException ignored) {}
+            return;
+        }
+
+        activeConnections.incrementAndGet();
+        AppLogger.info(LOG, "Client connecté: " + clientIp + " → " + videoTitle);
+
+        long bytesServedThisSession = 0;
         try (Socket socket = clientSocket;
              BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII));
              OutputStream out = socket.getOutputStream()) {
@@ -193,15 +239,33 @@ public class StreamingServer {
 
             int status = range.isPartial ? 206 : 200;
             out.write(buildHttpHeader(status, fileLength, range.start, range.end).getBytes(StandardCharsets.US_ASCII));
-            streamFile(out, range.start, range.end);
+            long served = streamFile(out, range.start, range.end);
+            bytesServedThisSession += served;
+            totalBytesServed.addAndGet(served);
 
-            System.out.println("[StreamingServer] Streaming terminé pour " + clientIp + " (" + range.start + "-" + range.end + ")");
+            AppLogger.info(LOG, "Streaming terminé: " + clientIp
+                + " bytes=" + served + " range=" + range.start + "-" + range.end);
+
         } catch (IOException e) {
             String msg = e.getMessage();
             if (msg != null && (msg.contains("Connection reset by peer") || msg.contains("Broken pipe"))) {
-                System.out.println("[StreamingServer] Le client s'est déconnecté (seek/changement de flux).");
+                AppLogger.info(LOG, "Client déconnecté (seek): " + clientIp);
             } else {
-                System.err.println("Erreur lors du streaming: " + e.getMessage());
+                AppLogger.warn(LOG, "Erreur streaming: " + e.getMessage());
+            }
+        } finally {
+            ipCount.decrementAndGet();
+            activeConnections.decrementAndGet();
+            // Record view event asynchronously
+            if (bytesServedThisSession > 0 && databaseId > 0) {
+                final long bytes = bytesServedThisSession;
+                final String ipHash = hashIp(clientIp);
+                Thread.ofVirtual().start(() -> {
+                    try {
+                        new StatsRepository().recordView(databaseId, ipHash, bytes);
+                        new VideoRepository().incrementViewCount(databaseId);
+                    } catch (Exception ignored) {}
+                });
             }
         }
     }
@@ -260,7 +324,7 @@ public class StreamingServer {
 
             File cacheDir = cacheFile.getParentFile();
             if (cacheDir != null && !cacheDir.exists() && !cacheDir.mkdirs()) {
-                System.err.println("[StreamingServer] Impossible de créer le dossier thumbnail: " + cacheDir);
+                AppLogger.warn(LOG, "Impossible de créer le dossier thumbnail: " + cacheDir);
                 return null;
             }
 
@@ -304,20 +368,20 @@ public class StreamingServer {
             boolean finished = process.waitFor(20, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
-                System.err.println("[StreamingServer] Timeout ffmpeg pour thumbnail");
+                AppLogger.warn(LOG, "Timeout ffmpeg pour thumbnail");
                 return false;
             }
 
             if (process.exitValue() != 0) {
                 if (!ffmpegOut.isBlank()) {
-                    System.err.println("[StreamingServer] ffmpeg: " + ffmpegOut.trim());
+                    AppLogger.warn(LOG, "ffmpeg: " + ffmpegOut.trim());
                 }
                 return false;
             }
 
             return outputFile.exists() && outputFile.length() > 0;
         } catch (IOException e) {
-            System.err.println("[StreamingServer] ffmpeg indisponible: " + e.getMessage());
+            AppLogger.warn(LOG, "ffmpeg indisponible: " + e.getMessage());
             return false;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -426,25 +490,61 @@ public class StreamingServer {
         }
     }
 
-    private void streamFile(OutputStream out, long start, long end) throws IOException {
+    private long streamFile(OutputStream out, long start, long end) throws IOException {
+        long totalServed = 0;
         try (FileInputStream fis = new FileInputStream(videoFile)) {
             fis.skipNBytes(start);
-
             byte[] buffer = new byte[BUFFER_SIZE];
             long remaining = end - start + 1;
-
             while (remaining > 0) {
                 int toRead = (int) Math.min(buffer.length, remaining);
                 int bytesRead = fis.read(buffer, 0, toRead);
-                if (bytesRead < 0) {
-                    break;
-                }
+                if (bytesRead < 0) break;
                 out.write(buffer, 0, bytesRead);
                 remaining -= bytesRead;
+                totalServed += bytesRead;
             }
             out.flush();
         }
+        return totalServed;
     }
+
+    /** Persist video metadata to H2 via ffprobe, store databaseId for stats */
+    private void persistMetadata() {
+        try {
+            VideoRepository repo = new VideoRepository();
+            VideoMetadata vm = new VideoMetadata();
+            vm.setTitle(videoTitle);
+            vm.setFilePath(videoFile.getAbsolutePath());
+            vm.setHost(streamingHost);
+            vm.setPort(streamingPort);
+            vm.setActive(true);
+            // Extract metadata via ffprobe
+            FfprobeExtractor.extract(videoFile, vm);
+            databaseId = repo.upsert(vm);
+            AppLogger.info(LOG, "Métadonnées persistées en base (id=" + databaseId + ")");
+        } catch (Exception e) {
+            AppLogger.warn(LOG, "Impossible de persister les métadonnées: " + e.getMessage());
+        }
+    }
+
+    /** Hash IP for anonymized storage */
+    private static String hashIp(String ip) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(ip.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : hash) hex.append(String.format("%02x", b));
+            return hex.substring(0, 16);
+        } catch (Exception e) {
+            return "unknown";
+        }
+    }
+
+    // Getters for monitoring
+    public long getTotalBytesServed()  { return totalBytesServed.get(); }
+    public int  getActiveConnections() { return activeConnections.get(); }
+    public int  getDatabaseId()        { return databaseId; }
 
     private String getContentType() {
         String fileName = videoFile.getName().toLowerCase(Locale.ROOT);
@@ -508,9 +608,9 @@ public class StreamingServer {
             Registry registry = LocateRegistry.getRegistry(diaryHost, diaryPort);
             Diary diary = (Diary) registry.lookup("Diary");
             diary.registerVideo(videoTitle, streamingHost, streamingPort);
-            System.out.println("[StreamingServer] Vidéo enregistrée dans le Diary: " + videoTitle);
+            AppLogger.info(LOG, "Enregistré dans Diary: " + videoTitle);
         } catch (RemoteException | NotBoundException e) {
-            System.err.println("Impossible de contacter le Diary pour enregistrer la vidéo: " + e.getMessage());
+            AppLogger.error(LOG, "Impossible de contacter le Diary: " + e.getMessage());
             throw e;
         }
     }
@@ -520,9 +620,9 @@ public class StreamingServer {
             Registry registry = LocateRegistry.getRegistry(diaryHost, diaryPort);
             Diary diary = (Diary) registry.lookup("Diary");
             diary.unregisterVideo(videoTitle);
-            System.out.println("[StreamingServer] Vidéo désenregistrée du Diary: " + videoTitle);
+            AppLogger.info(LOG, "Désenregistré du Diary: " + videoTitle);
         } catch (NotBoundException | RemoteException e) {
-            System.err.println("Erreur lors du désenregistrement Diary: " + e.getMessage());
+            AppLogger.warn(LOG, "Erreur désenregistrement Diary: " + e.getMessage());
         }
     }
 

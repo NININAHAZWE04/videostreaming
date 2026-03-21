@@ -5,8 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 DIARY_HOST="${1:-localhost}"
-DIARY_PORT="${2:-1099}"
-API_PORT="${3:-8080}"
+DIARY_PORT="${2:-12999}"
+API_PORT="${3:-18080}"
 
 validate_port() {
   local p="$1"
@@ -28,4 +28,4 @@ echo "Diary: $DIARY_HOST:$DIARY_PORT"
 echo "API:   http://localhost:$API_PORT"
 echo "=========================================="
 
-exec java -cp bin server.api.DiaryApiServer "$DIARY_HOST" "$DIARY_PORT" "$API_PORT"
+CP=""; for jar in lib/*.jar; do [ -f "$jar" ] && CP="${CP:+$CP:}$jar"; done; CP="${CP:+$CP:}bin"; exec java -cp "$CP" server.api.DiaryApiServer "$DIARY_HOST" "$DIARY_PORT" "$API_PORT"

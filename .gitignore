@@ -1,13 +1,45 @@
-# Compiled classes
-bin/**/*.class
+# ── Java compiled ────────────────────────────────────────────
+bin/
+*.class
 
-# Frontend artifacts
+# ── Database & runtime data ──────────────────────────────────
+data/
+*.db
+*.mv.db
+*.trace.db
+
+# ── Videos (trop lourds pour git) ───────────────────────────
+videos/
+*.mp4
+*.mkv
+*.avi
+*.webm
+*.mov
+
+# ── Node.js ──────────────────────────────────────────────────
+node_modules/
 web/node_modules/
-web/dist/
+admin/node_modules/
 
-# IDE
+# ── Build output ─────────────────────────────────────────────
+web/dist/
+admin/dist/
+
+# ── Secrets — NE JAMAIS committer ───────────────────────────
+.env
+*.env
+
+# ── IDE ──────────────────────────────────────────────────────
 .idea/
 .vscode/
+*.iml
 
-# OS
+# ── OS ───────────────────────────────────────────────────────
 .DS_Store
+Thumbs.db
+
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+
+# ── Docker ───────────────────────────────────────────────────
+# (les Dockerfiles eux-mêmes sont versionnés)

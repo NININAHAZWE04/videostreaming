@@ -9,6 +9,13 @@ if ! command -v javac >/dev/null 2>&1; then
   exit 1
 fi
 
+# Build classpath: include all jars in lib/
+CP=""
+for jar in lib/*.jar; do
+  [ -f "$jar" ] && CP="${CP:+$CP:}$jar"
+done
+[ -z "$CP" ] && CP="."
+
 mkdir -p bin
 find bin -type f -name '*.class' -delete
 
@@ -18,6 +25,6 @@ if [ "${#JAVA_SOURCES[@]}" -eq 0 ]; then
   exit 1
 fi
 
-javac -encoding UTF-8 -d bin "${JAVA_SOURCES[@]}"
+javac -encoding UTF-8 -cp "$CP" -d bin "${JAVA_SOURCES[@]}"
 
-echo "Build terminé: ${#JAVA_SOURCES[@]} source(s) compilée(s)."
+echo "Build terminé: ${#JAVA_SOURCES[@]} source(s) compilée(s) avec CP=$CP"

@@ -1,0 +1,83 @@
+# ============================================================
+#  VideoStreaming Platform — Docker Compose
+#
+#  Démarrage rapide :
+#    cp .env.example .env     # éditer les secrets
+#    docker compose up -d
+#
+#  Services :
+#    backend    → ports 12999,18080,18081,18082
+#    client-web → port 55173
+#    admin-web  → port 55174
+# ============================================================
+
+services:
+
+  # ── Backend : Diary RMI + Admin API + Auth + H2 ─────────────
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: vs-backend
+    restart: unless-stopped
+    environment:
+      - ADMIN_SECRET=${ADMIN_SECRET:-changeme-admin-secret}
+      - JWT_SECRET=${JWT_SECRET:-changeme-jwt-secret}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "${PORT_DIARY_RMI:-12999}:12999"
+      - "${PORT_API_PUBLIC:-18080}:18080"
+      - "${PORT_API_ADMIN:-18081}:18081"
+      - "${PORT_H2_CONSOLE:-18082}:18082"
+    volumes:
+      - db-data:/app/data
+      - video-files:/app/videos
+      - ./application.properties:/app/application.properties:ro
+    networks:
+      - vsnet
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:18081/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Panel Admin React ────────────────────────────────────────
+  admin-web:
+    build:
+      context: admin
+      dockerfile: ../docker/Dockerfile.admin
+    container_name: vs-admin-web
+    restart: unless-stopped
+    ports:
+      - "${PORT_ADMIN_WEB:-55174}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - vsnet
+
+  # ── Client Web React ─────────────────────────────────────────
+  client-web:
+    build:
+      context: web
+      dockerfile: ../docker/Dockerfile.web
+    container_name: vs-client-web
+    restart: unless-stopped
+    ports:
+      - "${PORT_CLIENT_WEB:-55173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - vsnet
+
+volumes:
+  db-data:
+    driver: local
+  video-files:
+    driver: local
+
+networks:
+  vsnet:
+    driver: bridge

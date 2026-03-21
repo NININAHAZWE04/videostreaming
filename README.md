@@ -1,98 +1,198 @@
-# VideoStreaming Platform
+<div align="center">
 
-Plateforme de streaming vidéo en Java avec une expérience complète:
-- backend RMI + HTTP pour publier des flux vidéo,
-- applications Swing Provider/Client,
-- frontend web moderne React + Tailwind pour la visibilité et le monitoring.
+# 🎬 VideoStreaming Platform
 
-## Pourquoi ce projet
-- Découvrir une architecture distribuée simple (RMI + HTTP).
-- Publier des vidéos localement et les consommer en réseau.
-- Offrir deux UX: Desktop (Swing) et Web (Dashboard moderne).
+**Plateforme de streaming vidéo distribuée en Java — avec authentification, abonnements, téléchargement sécurisé et panel d'administration complet.**
 
-## Stack technique
-- Java 21 (RMI, sockets HTTP, Swing)
-- Bash scripts pour build/run
-- API HTTP locale Java (`DiaryApiServer`)
-- React 18 + Vite + Tailwind CSS (frontend web)
+![Java](https://img.shields.io/badge/Java-21-orange?style=flat-square)
+![React](https://img.shields.io/badge/React-18-blue?style=flat-square)
+![H2](https://img.shields.io/badge/H2-Database-green?style=flat-square)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square)
+![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)
 
-## Architecture rapide
-1. `DiaryServer`: annuaire RMI des vidéos disponibles.
-2. `StreamingServer`: un serveur HTTP par vidéo.
-3. `ClientGui`: consomme le Diary et ouvre VLC.
-4. `DiaryApiServer`: expose `/api/videos` pour le frontend web.
-5. `web/`: dashboard moderne pour visualiser les flux.
+</div>
 
-## Prérequis
-- Linux/macOS
-- JDK 21+
-- VLC (`vlc` dans le `PATH`)
-- FFmpeg (`ffmpeg` dans le `PATH`) pour générer les miniatures depuis des scènes du film
-- Node.js 20+ et npm (pour le frontend)
+---
 
-## Démarrage backend (desktop)
-1. Préparer le projet:
+## 🏗️ Architecture
+
+Trois composants essentiels :
+
+| Composant | Rôle | Port |
+|-----------|------|------|
+| **Diary Server** | Annuaire RMI — répertoire de tous les streams actifs | 1099 |
+| **Streaming Server** | Serveur HTTP par vidéo — Range requests, stats, thumbnails | 5000+ |
+| **Admin API** | REST + Auth + SSE — gestion complète | 8081 |
+
+```
+DiaryServer (RMI:1099)
+       │
+       ├── StreamingServer (HTTP:5000+)  ←→  Client Swing / VLC
+       │
+AdminApiServer (HTTP:8081)
+       ├── /api/videos        ← Client Web React
+       ├── /api/admin/*       ← Panel Admin React
+       ├── /api/auth/*        ← Authentification JWT
+       └── /api/download      ← Téléchargement sécurisé
+```
+
+## ✨ Fonctionnalités
+
+### Backend Java
+- **Diary RMI** — registre distribué, persisté en base H2
+- **Streaming HTTP** — Range requests (seek), thumbnails ffmpeg, rate limiting par IP
+- **H2 Database** — schéma auto-créé, migration automatique, console web intégrée
+- **JWT HS256** — authentification stateless, sans dépendance externe
+- **PBKDF2-HmacSHA256** — hachage des mots de passe, sel aléatoire
+- **SSE (Server-Sent Events)** — temps réel sans polling (vidéo ajoutée, stream démarré…)
+- **Téléchargement sécurisé** — tokens à usage unique, 2h d'expiration
+
+### Panel Admin React (`/admin`)
+- **Dashboard** — KPIs, graphique vues 24h, top vidéos, santé JVM
+- **Gestion vidéos** — CRUD, métadonnées auto via ffprobe, toggle accès libre/premium
+- **Gestion catégories** — couleur, icône, CRUD
+- **Monitoring** — streams actifs en temps réel, thumbnails live
+- **Utilisateurs** — liste, accorder/révoquer abonnement, suspendre compte
+- **Abonnements** — vue chronologique, alertes expiration imminente
+- **Paiements cash** — approbation/rejet avec activation automatique de l'abonnement
+- **Logs live** — terminal SSE avec colorisation par niveau
+
+### Client Web React (`/web`)
+- Interface Netflix-style responsive
+- **Authentification** — inscription/connexion, avatar coloré
+- **Essai gratuit 14j** — activé automatiquement à l'inscription
+- **Abonnement** — plans Mensuel/Annuel, paiement cash avec note de preuve
+- **Contenu verrouillé** — overlay premium, row "Gratuit" toujours visible
+- **Téléchargement** — bouton dans le player, token signé côté serveur
+- **Historique & progression** — section "Reprendre", barre de progression
+- **SSE** — remplace le polling, mises à jour instantanées
+- **Filtres** — catégories colorées, recherche full-text
+
+---
+
+## 🚀 Démarrage rapide
+
+### Option A — Développement local
+
+**Prérequis :** Java 21+, Node.js 20+, ffmpeg (pour thumbnails)
+
 ```bash
+# 1. Setup (vérifie les dépendances, crée les dossiers)
 ./setup.sh
-```
 
-2. Terminal 1 - Diary:
-```bash
-./start-diary.sh localhost 1099
-```
+# 2. Terminal 1 — Diary (annuaire RMI)
+./start-diary.sh
 
-3. Terminal 2 - Provider GUI:
-```bash
+# 3. Terminal 2 — Streaming Provider (GUI admin desktop)
 ./start-streaming-server.sh
+
+# 4. Terminal 3 — Admin API (auth + REST)
+./start-admin-api.sh
+
+# 5. Terminal 4 — API publique legacy (optionnel)
+./start-web-api.sh
+
+# 6. Terminal 5 — Client web React
+./start-web-frontend.sh 8081
+# → http://localhost:5173
+
+# 7. Terminal 6 — Panel Admin React
+./start-admin-frontend.sh 8081
+# → http://localhost:5174
 ```
 
-4. Terminal 3 - Client GUI:
+### Option B — Docker Compose (recommandé)
+
 ```bash
-./start-client.sh
+# 1. Copier et configurer les variables
+cp .env.example .env
+nano .env  # changer ADMIN_SECRET et JWT_SECRET
+
+# 2. Lancer toute la stack
+docker compose up -d
+
+# 3. Vérifier que tout tourne
+docker compose ps
+docker compose logs -f backend
 ```
 
-## Démarrage web moderne
-1. Terminal 4 - API Web Java:
-```bash
-./start-web-api.sh localhost 1099 8080
+Accès :
+| URL | Service |
+|-----|---------|
+| http://localhost:5173 | Client Web |
+| http://localhost:5174 | Panel Admin |
+| http://localhost:8081/api/health | API Health |
+| http://localhost:8082 | H2 Console (dev) |
+
+---
+
+## 🗂️ Structure du projet
+
+```
+videostreaming/
+├── src/
+│   ├── common/          # AppConfig, AppLogger
+│   ├── db/              # H2 — User, Video, Subscription, Payment repositories
+│   ├── diary/           # RMI — Diary interface + DiaryImpl (H2)
+│   ├── server/
+│   │   ├── api/         # AdminApiServer, DiaryApiServer, JsonBuilder
+│   │   ├── auth/        # JwtUtil, PasswordUtil, AuthApiServer, DownloadHandler
+│   │   ├── gui/         # StreamingServerGui (Swing)
+│   │   └── sse/         # SseEventBus
+│   └── client/gui/      # ClientGui (Swing + VLC)
+├── web/                 # Client React — Netflix-style
+├── admin/               # Panel Admin React
+├── docker/              # Dockerfiles + nginx.conf
+├── docs/                # Architecture, Opérations, Frontend, API
+├── lib/                 # h2.jar
+├── application.properties
+├── docker-compose.yml
+├── .env.example
+└── build.sh / setup.sh / start-*.sh
 ```
 
-2. Terminal 5 - Frontend:
-```bash
-./start-web-frontend.sh
+---
+
+## ⚙️ Configuration
+
+Toute la configuration se fait dans `application.properties` :
+
+```properties
+admin.secret=votre-secret-admin
+jwt.secret=votre-secret-jwt-64-chars-min
+plan.monthly.price=9.99
+plan.annual.price=79.99
+streaming.max.connections.per.ip=5
+log.level=INFO
 ```
 
-3. Ouvrir `http://localhost:5173`.
+Pour Docker, utiliser `.env` (copié depuis `.env.example`).
 
-## Scripts backend
-- `./build.sh`: compile toutes les classes Java
-- `./clean.sh`: supprime les classes compilées
-- `./start-diary.sh [host] [port]`
-- `./start-streaming-server.sh`
-- `./start-client.sh`
-- `./start-web-api.sh [diaryHost] [diaryPort] [apiPort]`
-- `./start-web-frontend.sh`
+---
 
-## Structure du repository
-- `src/diary/`: contrat et implémentation RMI
-- `src/server/`: serveur HTTP streaming
-- `src/server/api/`: API HTTP pour frontend
-- `src/server/gui/`: interface provider Swing
-- `src/client/gui/`: interface client Swing
-- `web/`: frontend React + Tailwind
-- `docs/`: documentation technique et exploitation
+## 📚 Documentation
 
-## Documentation
-- [Architecture](docs/ARCHITECTURE.md)
-- [Guide d'exploitation](docs/OPERATIONS.md)
-- [Frontend Web](docs/FRONTEND.md)
-- [Contribuer](CONTRIBUTING.md)
+| Document | Contenu |
+|----------|---------|
+| [Architecture](docs/ARCHITECTURE.md) | Schémas, flux de données, choix techniques |
+| [Guide d'exploitation](docs/OPERATIONS.md) | Démarrage, scripts, dépannage |
+| [Frontend](docs/FRONTEND.md) | Client web + Panel admin |
+| [API Reference](docs/API.md) | Tous les endpoints REST |
+| [Contribuer](CONTRIBUTING.md) | Guidelines de contribution |
 
-## Contribution
-Les issues, idées d'amélioration, correctifs et pull requests sont les bienvenus.
-**Toute contribution est la bienvenue.**
+---
 
-## Roadmap courte
-- API write (`POST`) pour piloter certaines actions depuis le web.
-- Authentification simple pour un usage réseau élargi.
-- Packaging Docker pour déploiement rapide.
+## 🔒 Sécurité
+
+- Mots de passe : PBKDF2-HmacSHA256, 310 000 itérations, sel aléatoire 32 bytes
+- JWT : HS256, 7 jours, signature HMAC côté serveur
+- Téléchargement : tokens à usage unique (1 seul usage, 2h d'expiration)
+- IPs client : hashées SHA-256 avant stockage (anonymisation RGPD)
+- Rate limiting : max connexions simultanées par IP configurable
+- **⚠️ En production** : changer `admin.secret` et `jwt.secret` dans `.env`
+
+---
+
+## 📄 License
+
+MIT — voir [LICENSE](LICENSE) pour les détails.

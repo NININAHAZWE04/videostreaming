@@ -1,70 +1,249 @@
 # Guide d'exploitation
 
-## Build backend
+## Démarrage local (développement)
+
+### Prérequis
 ```bash
-./build.sh
+java -version    # Java 21+
+node -v          # Node 20+
+ffmpeg -version  # pour thumbnails (optionnel)
+ffprobe -version # pour métadonnées auto (optionnel)
 ```
 
-## Nettoyage backend
+### Installation
 ```bash
-./clean.sh
+git clone https://github.com/VOTRE_USER/videostreaming.git
+cd videostreaming
+./setup.sh   # vérifie les dépendances, crée data/ videos/ lib/
 ```
 
-## Lancement complet (desktop + web)
-Terminal 1 - Diary:
-```bash
-./start-diary.sh localhost 1099
-```
+### Ordre de démarrage (6 terminaux)
 
-Terminal 2 - Provider GUI:
 ```bash
+# Terminal 1 — Diary
+./start-diary.sh
+
+# Terminal 2 — Streaming Server (GUI Swing admin desktop)
 ./start-streaming-server.sh
+
+# Terminal 3 — Admin API (auth + REST + SSE)
+./start-admin-api.sh
+
+# Terminal 4 — API publique legacy (optionnel)
+./start-web-api.sh
+
+# Terminal 5 — Client Web React
+./start-web-frontend.sh 8081   # → http://localhost:5173
+
+# Terminal 6 — Panel Admin React
+./start-admin-frontend.sh 8081   # → http://localhost:5174
 ```
 
-Terminal 3 - Client GUI:
+### Vérification rapide
 ```bash
-./start-client.sh
+# Santé de l'API
+curl http://localhost:8081/api/health
+
+# Liste des vidéos actives
+curl http://localhost:8081/api/videos
+
+# Token admin (remplacer par votre secret)
+curl -H "Authorization: Bearer changeme-admin-secret" \
+     http://localhost:8081/api/admin/stats
 ```
 
-Terminal 4 - API Web:
+---
+
+## Démarrage Docker (production / test intégré)
+
+### Prérequis
+- Docker 24+ et Docker Compose V2
+- Ports libres : 1099, 5173, 5174, 8080, 8081, 8082
+
+### Lancement
+
 ```bash
-./start-web-api.sh localhost 1099 8080
+# 1. Configurer les secrets
+cp .env.example .env
+nano .env
+# → changer ADMIN_SECRET et JWT_SECRET obligatoirement
+
+# 2. Construire et démarrer (premier lancement : ~3min)
+docker compose up -d --build
+
+# 3. Vérifier l'état
+docker compose ps
+docker compose logs -f backend
+
+# 4. Attendre le healthcheck
+docker compose ps
+# STATUS doit passer à "healthy"
 ```
 
-Terminal 5 - Frontend:
+### Commandes utiles
+
 ```bash
-./start-web-frontend.sh
+# Arrêt sans perdre les données
+docker compose down
+
+# Arrêt + suppression des volumes (RESET total)
+docker compose down -v
+
+# Rebuild d'un seul service après modification
+docker compose build backend
+docker compose up -d backend
+
+# Voir les logs en temps réel
+docker compose logs -f backend
+docker compose logs -f client-web
+
+# Accéder au conteneur backend
+docker exec -it vs-backend sh
 ```
 
-## Vérifications rapides
-- Diary affiche `DIARY SERVICE STARTED`.
-- Provider affiche l'écoute des ports de streaming.
-- API web affiche `API web démarrée`.
-- Frontend web accessible sur `http://localhost:5173`.
+### Persistance des données
 
-## Logs
-- Les GUI Swing affichent désormais leurs logs dans la fenêtre et dans le terminal.
-- L'API web journalise ses événements dans le terminal.
+Les données sont dans deux volumes Docker :
+- `db-data` → base H2 (`data/videostreaming.mv.db`)
+- `video-files` → fichiers vidéo (`videos/`)
 
-## Erreurs fréquentes
-1. `port invalide`
-- Vérifier que le port est numérique dans `1..65535`.
+```bash
+# Localiser les volumes
+docker volume inspect videostreaming_db-data
+docker volume inspect videostreaming_video-files
 
-2. `Diary unavailable` côté API
-- Vérifier que le Diary est démarré et joignable.
+# Sauvegarder la base H2
+docker run --rm -v videostreaming_db-data:/data -v $(pwd):/backup alpine \
+  tar czf /backup/backup-h2-$(date +%Y%m%d).tar.gz /data
+```
 
-3. Frontend ne charge pas les vidéos
-- Vérifier que l'API est accessible (`http://localhost:8080/api/videos`).
-- Vérifier l'URL API configurée dans le dashboard.
+### Ajouter des vidéos dans Docker
 
-4. VLC ne se lance pas
-- Installer VLC et vérifier la commande `vlc`.
+```bash
+# Copier des vidéos dans le volume
+docker cp /chemin/local/film.mp4 vs-backend:/app/videos/
 
-5. Miniatures non affichées dans le dashboard web
-- Vérifier que `ffmpeg` est installé et accessible via `ffmpeg -version`.
-- Vérifier l'endpoint miniature: `http://<host>:<port>/thumbnail`.
+# OU monter un dossier local dans docker-compose.yml :
+# volumes:
+#   - /home/USER/mes-videos:/app/videos
+```
 
-## Bonnes pratiques
-- Utiliser des titres vidéo uniques.
-- Réserver une plage de ports de streaming (ex: `5000+`).
-- Ouvrir les composants dans l'ordre: Diary -> Provider -> API -> Frontend/Client.
+---
+
+## Configuration
+
+### application.properties
+
+```properties
+# Annuaire RMI
+diary.host=localhost
+diary.port=1099
+
+# APIs
+api.port=8080           # Public API (lecture seule)
+admin.api.port=8081     # Admin API (auth + admin + SSE)
+
+# Sécurité — CHANGER en production !
+admin.secret=votre-secret-fort-ici
+jwt.secret=votre-secret-jwt-64-chars-min-ici
+
+# Plans & tarifs
+plan.monthly.price=9.99
+plan.annual.price=79.99
+plan.trial.days=14
+plan.currency=USD
+
+# Base de données
+db.url=jdbc:h2:./data/videostreaming;AUTO_SERVER=TRUE;DB_CLOSE_DELAY=-1
+db.user=sa
+db.password=
+
+# H2 Console web (désactiver en production)
+h2.console.enabled=true
+h2.console.port=8082
+
+# Streaming
+streaming.max.connections.per.ip=5
+
+# Logging : DEBUG | INFO | WARN | ERROR
+log.level=INFO
+```
+
+---
+
+## Premier accès
+
+### Créer un compte admin via API
+```bash
+# 1. Créer un compte normal
+curl -X POST http://localhost:8081/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","username":"Admin","password":"motdepasse123"}'
+
+# 2. L'élever en admin (avec le secret admin)
+curl -X PUT http://localhost:8081/api/admin/users/1 \
+  -H "Authorization: Bearer changeme-admin-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"role":"admin"}'
+```
+
+### Console H2 (développement uniquement)
+URL : http://localhost:8082
+- JDBC URL : `jdbc:h2:./data/videostreaming`
+- Utilisateur : `sa` / Mot de passe : *(vide)*
+
+---
+
+## Résolution de problèmes
+
+### Le backend ne démarre pas
+```bash
+# Vérifier les logs
+docker compose logs backend
+
+# Problèmes fréquents :
+# - Port 1099 déjà utilisé → changer PORT_DIARY_RMI dans .env
+# - Port 8081 déjà utilisé → changer PORT_API_ADMIN dans .env
+# - Fichier application.properties manquant → ./setup.sh
+```
+
+### "Diary unavailable" dans l'API
+```bash
+# Vérifier que le Diary est démarré
+curl -sf http://localhost:8081/api/health | python3 -m json.tool
+# → activeStreams, totalVideos, etc.
+```
+
+### Thumbnails non affichés
+- Vérifier que `ffmpeg` est installé dans le conteneur : `docker exec vs-backend ffmpeg -version`
+- L'endpoint thumbnail est sur le StreamingServer : `http://HOST:PORT_STREAM/thumbnail`
+
+### Paiement approuvé mais abonnement non activé
+- Vérifier les logs : `docker compose logs -f backend | grep PaymentRepository`
+- L'approbation appelle automatiquement `SubscriptionRepository.activatePaidPlan()`
+
+### JWT invalide après changement de jwt.secret
+- Tous les tokens existants sont invalidés
+- Les utilisateurs doivent se reconnecter
+
+### Réinitialiser un mot de passe (via API admin)
+```bash
+# Pas d'endpoint direct — supprimer le compte et le recréer
+# OU modifier directement via H2 Console (dev uniquement)
+```
+
+---
+
+## Monitoring en production
+
+```bash
+# Healthcheck permanent
+watch -n 5 'curl -s http://localhost:8081/api/health | python3 -m json.tool'
+
+# Logs structurés en temps réel
+docker compose logs -f backend | grep -E "\[INFO\]|\[WARN\]|\[ERROR\]"
+
+# Stats dashboard
+curl -s -H "Authorization: Bearer $ADMIN_SECRET" \
+  http://localhost:8081/api/admin/stats | python3 -m json.tool
+```

@@ -12,4 +12,4 @@ echo "=========================================="
 
 echo "Interface graphique en cours de chargement..."
 
-exec java -cp bin server.gui.StreamingServerGui
+CP=""; for jar in lib/*.jar; do [ -f "$jar" ] && CP="${CP:+$CP:}$jar"; done; CP="${CP:+$CP:}bin"; exec java -cp "$CP" server.gui.StreamingServerGui

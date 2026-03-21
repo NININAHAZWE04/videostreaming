@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface2: #18181f;
+    --border: rgba(255,255,255,0.07);
+    --border-hover: rgba(255,255,255,0.14);
+    --text: #e4e4f0;
+    --text-muted: #6b6b82;
+    --text-dim: #3a3a50;
+    --brand: #38bdf8;
+    --brand-dim: rgba(56,189,248,0.12);
+    --brand-glow: rgba(56,189,248,0.25);
+    --success: #34d399;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --danger-dim: rgba(248,113,113,0.12);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 3px; }
+  ::selection { background: var(--brand-dim); }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border;
+    background: var(--surface);
+    border-color: var(--border);
+  }
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-150 cursor-pointer select-none;
+  }
+  .btn-primary {
+    background: var(--brand);
+    color: #000;
+  }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-ghost {
+    @apply btn;
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { border-color: var(--border-hover); color: var(--text); background: var(--surface2); }
+  .btn-danger {
+    @apply btn;
+    background: var(--danger-dim);
+    color: var(--danger);
+    border: 1px solid rgba(248,113,113,0.2);
+  }
+  .btn-danger:hover { background: rgba(248,113,113,0.2); }
+  .input {
+    @apply w-full rounded-lg px-3 py-2 text-sm outline-none transition-all;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-dim); }
+  .input::placeholder { color: var(--text-dim); }
+  .label { @apply block text-xs font-medium mb-1.5; color: var(--text-muted); letter-spacing: 0.04em; text-transform: uppercase; }
+  .badge { @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium; }
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 cursor-pointer;
+    color: var(--text-muted);
+  }
+  .nav-item:hover { color: var(--text); background: var(--surface2); }
+  .nav-item.active { color: var(--brand); background: var(--brand-dim); }
+  .table-row { @apply border-b; border-color: var(--border); }
+  .table-row:hover { background: var(--surface2); }
+  .stat-card {
+    @apply card p-5 flex flex-col gap-3;
+  }
+}
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes slideIn { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
+
+.animate-fade-in { animation: fadeIn 0.25s ease both; }
+.animate-slide-in { animation: slideIn 0.2s ease both; }
+.live-dot { animation: pulse-dot 1.5s ease infinite; }
+.spinner { animation: spin 0.7s linear infinite; }

@@ -118,13 +118,7 @@ public final class DiaryApiServer {
                     if (i > 0) {
                         sb.append(',');
                     }
-                    sb.append('{')
-                        .append("\"title\":\"").append(escapeJson(v.getTitle())).append("\",")
-                        .append("\"host\":\"").append(escapeJson(v.getHost())).append("\",")
-                        .append("\"port\":").append(v.getPort()).append(',')
-                        .append("\"url\":\"http://").append(escapeJson(v.getHost())).append(':').append(v.getPort()).append("\",")
-                        .append("\"thumbnailUrl\":\"http://").append(escapeJson(v.getHost())).append(':').append(v.getPort()).append("/thumbnail\"")
-                        .append('}');
+                    sb.append(server.api.JsonBuilder.videoInfoToJson(v));
                 }
                 sb.append("]}");
 

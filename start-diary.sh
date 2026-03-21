@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 HOST="${1:-localhost}"
-PORT="${2:-1099}"
+PORT="${2:-12999}"
 
 if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
   echo "Erreur: port Diary invalide ($PORT). Attendu: 1..65535" >&2
@@ -21,4 +21,4 @@ echo "Host: $HOST"
 echo "Port: $PORT"
 echo "=========================================="
 
-exec java -cp bin diary.DiaryServer "$HOST" "$PORT"
+CP=""; for jar in lib/*.jar; do [ -f "$jar" ] && CP="${CP:+$CP:}$jar"; done; CP="${CP:+$CP:}bin"; exec java -cp "$CP" diary.DiaryServer "$HOST" "$PORT"
