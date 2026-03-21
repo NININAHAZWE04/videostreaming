@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import * as api from './api.js'
-import { Check, X, DollarSign, Clock2, CheckCircle, XCircle, AlertCircle, RefreshCw } from './icons.jsx'
+import { Check, X, DollarSign, Clock2, CheckCircle, XCircle, AlertCircle, RefreshCw, Plus } from './icons.jsx'
 
 function toast(msg, type='info') {
   const el = document.createElement('div')
@@ -94,16 +94,45 @@ function ActionModal({ payment, action, onClose, onDone }) {
 
 export default function PaymentsPage() {
   const [payments, setPayments] = useState([])
+  const [users, setUsers] = useState([])
   const [loading, setLoading]   = useState(true)
   const [filter, setFilter]     = useState('all')
   const [action, setAction]     = useState(null) // { payment, type: 'approve'|'reject' }
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manual, setManual] = useState({ userId: '', plan: 'monthly', amount: '', durationDays: '', currency: 'USD', status: 'approved', proofNote: '', adminNote: '' })
 
   const load = useCallback(async () => {
     setLoading(true)
-    try { setPayments(await api.fetchAdminPayments()) }
+    try {
+      const [paymentRows, userRows] = await Promise.all([api.fetchAdminPayments(), api.fetchAdminUsers()])
+      setPayments(paymentRows)
+      setUsers(Array.isArray(userRows) ? userRows : [])
+    }
     catch (e) { toast(e.message, 'error') }
     finally { setLoading(false) }
   }, [])
+
+  const submitManual = async () => {
+    if (!manual.userId) { toast('Selectionnez un utilisateur', 'error'); return }
+    try {
+      await api.createAdminPayment({
+        userId: manual.userId,
+        plan: manual.plan,
+        amount: manual.amount,
+        durationDays: manual.durationDays,
+        currency: manual.currency,
+        status: manual.status,
+        proofNote: manual.proofNote,
+        adminNote: manual.adminNote,
+      })
+      toast('Paiement saisi avec succes', 'success')
+      setManualOpen(false)
+      setManual({ userId: '', plan: 'monthly', amount: '', durationDays: '', currency: 'USD', status: 'approved', proofNote: '', adminNote: '' })
+      load()
+    } catch (e) {
+      toast(e.message, 'error')
+    }
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -130,7 +159,10 @@ export default function PaymentsPage() {
           <h1 className="text-xl font-semibold" style={{ color:'var(--text)' }}>Paiements</h1>
           <p className="text-sm mt-0.5" style={{ color:'var(--text-muted)' }}>Gestion des paiements cash</p>
         </div>
-        <button className="btn-ghost btn" onClick={load}><RefreshCw />Actualiser</button>
+        <div className="flex items-center gap-2">
+          <button className="btn btn-primary" onClick={() => setManualOpen(true)}><Plus />Saisir un paiement</button>
+          <button className="btn-ghost btn" onClick={load}><RefreshCw />Actualiser</button>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -241,6 +273,66 @@ export default function PaymentsPage() {
         <ActionModal payment={action.payment} action={action.type}
           onClose={()=>setAction(null)}
           onDone={()=>{ setAction(null); load() }} />
+      )}
+
+      {manualOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background:'rgba(0,0,0,0.7)',backdropFilter:'blur(4px)' }} onClick={() => setManualOpen(false)}>
+          <div className="card w-full max-w-xl p-5 animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold" style={{ color:'var(--text)' }}>Saisir un paiement</h3>
+              <button className="btn-ghost btn p-1" onClick={() => setManualOpen(false)}><X /></button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="md:col-span-2">
+                <label className="label">Utilisateur</label>
+                <select className="input" value={manual.userId} onChange={e=>setManual(p=>({...p,userId:e.target.value}))}>
+                  <option value="">-- selectionner --</option>
+                  {users.map(u => <option key={u.id} value={u.id}>{u.username} ({u.email})</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Plan</label>
+                <select className="input" value={manual.plan} onChange={e=>setManual(p=>({...p,plan:e.target.value}))}>
+                  <option value="monthly">Mensuel</option>
+                  <option value="annual">Annuel</option>
+                  <option value="trial">Essai</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Statut</label>
+                <select className="input" value={manual.status} onChange={e=>setManual(p=>({...p,status:e.target.value}))}>
+                  <option value="approved">Approuve</option>
+                  <option value="pending">En attente</option>
+                  <option value="rejected">Rejete</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Montant</label>
+                <input className="input" value={manual.amount} onChange={e=>setManual(p=>({...p,amount:e.target.value}))} placeholder="ex: 9.99" />
+              </div>
+              <div>
+                <label className="label">Duree (jours)</label>
+                <input className="input" value={manual.durationDays} onChange={e=>setManual(p=>({...p,durationDays:e.target.value}))} placeholder="ex: 30" />
+              </div>
+              <div>
+                <label className="label">Devise</label>
+                <input className="input" value={manual.currency} onChange={e=>setManual(p=>({...p,currency:e.target.value.toUpperCase()}))} />
+              </div>
+              <div className="md:col-span-2">
+                <label className="label">Note client</label>
+                <input className="input" value={manual.proofNote} onChange={e=>setManual(p=>({...p,proofNote:e.target.value}))} />
+              </div>
+              <div className="md:col-span-2">
+                <label className="label">Note admin</label>
+                <input className="input" value={manual.adminNote} onChange={e=>setManual(p=>({...p,adminNote:e.target.value}))} />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4 justify-end">
+              <button className="btn-ghost btn" onClick={() => setManualOpen(false)}>Annuler</button>
+              <button className="btn btn-primary" onClick={submitManual}><Check />Enregistrer</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

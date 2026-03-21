@@ -128,7 +128,7 @@ export function userCanDownload(user) {
   return user && user.hasSubscription && user.subPlan !== 'free'
 }
 
-export const PLANS = [
+export const DEFAULT_PLANS = [
   {
     id: 'trial',
     name: 'Essai Gratuit',
@@ -157,3 +157,36 @@ export const PLANS = [
     features: ['Accès illimité', 'Tous les films', 'Téléchargement', 'Qualité 4K', 'Économisez 40€'],
   },
 ]
+
+let plansCache = [...DEFAULT_PLANS]
+
+export function getPlans() {
+  return plansCache
+}
+
+export async function fetchPlans() {
+  try {
+    const rows = await authReq('/api/auth/plans')
+    if (!Array.isArray(rows) || rows.length === 0) return plansCache
+    const mapped = rows.map((p) => {
+      const fallback = DEFAULT_PLANS.find(x => x.id === p.id)
+      const durationDays = Number(p.durationDays) || fallback?.durationDays || 30
+      const period = durationDays >= 365 ? 'par an' : durationDays <= 14 ? `${durationDays} jours` : 'par mois'
+      return {
+        id: p.id,
+        name: fallback?.name || p.id,
+        price: Number(p.price || 0),
+        period,
+        durationDays,
+        highlight: fallback?.highlight || false,
+        badge: fallback?.badge || null,
+        features: fallback?.features || ['Accès illimité'],
+      }
+    })
+    plansCache = mapped
+    return mapped
+  } catch {
+    return plansCache
+  }
+}
+

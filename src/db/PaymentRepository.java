@@ -49,21 +49,25 @@ public final class PaymentRepository {
         Optional<PaymentRow> opt = findById(paymentId);
         if (opt.isEmpty()) return false;
         PaymentRow p = opt.get();
+        if (!"pending".equalsIgnoreCase(p.status())) return false;
 
         // Activate subscription
         new SubscriptionRepository().activatePaidPlan(p.userId(), p.plan(), p.durationDays(), "Paiement #" + paymentId + " approuvé");
 
         // Mark payment approved
         String sql = "UPDATE payments SET status='approved', admin_note=?, approved_by=?, processed_at=CURRENT_TIMESTAMP WHERE id=?";
-        exec(sql, adminNote, adminName, paymentId);
+        if (!exec(sql, adminNote, adminName, paymentId)) return false;
         AppLogger.info(LOG, "Paiement #" + paymentId + " approuvé par " + adminName + " → user " + p.userId());
         return true;
     }
 
     /** Rejette un paiement. */
     public boolean reject(int paymentId, String adminName, String adminNote) {
+        Optional<PaymentRow> opt = findById(paymentId);
+        if (opt.isEmpty()) return false;
+        if (!"pending".equalsIgnoreCase(opt.get().status())) return false;
         String sql = "UPDATE payments SET status='rejected', admin_note=?, approved_by=?, processed_at=CURRENT_TIMESTAMP WHERE id=?";
-        exec(sql, adminNote, adminName, paymentId);
+        if (!exec(sql, adminNote, adminName, paymentId)) return false;
         AppLogger.info(LOG, "Paiement #" + paymentId + " rejeté par " + adminName);
         return true;
     }
@@ -129,11 +133,14 @@ public final class PaymentRepository {
         return list;
     }
 
-    private void exec(String sql, Object... params) {
+    private boolean exec(String sql, Object... params) {
         try (Connection c = db.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
             for (int i = 0; i < params.length; i++) ps.setObject(i + 1, params[i]);
-            ps.executeUpdate();
-        } catch (SQLException e) { AppLogger.warn(LOG, "exec: " + e.getMessage()); }
+            return ps.executeUpdate() > 0;
+        } catch (SQLException e) {
+            AppLogger.warn(LOG, "exec: " + e.getMessage());
+            return false;
+        }
     }
 
     private int count(String sql) {

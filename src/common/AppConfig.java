@@ -29,7 +29,14 @@ public final class AppConfig {
         props.setProperty("h2.console.port", "18082");
         props.setProperty("log.level", "INFO");
         props.setProperty("streaming.max.connections.per.ip", "5");
+        props.setProperty("streaming.max.concurrent.clients", "150");
         props.setProperty("videos.directory", "./videos");
+        props.setProperty("plan.monthly.price", "9.99");
+        props.setProperty("plan.monthly.days", "30");
+        props.setProperty("plan.annual.price", "79.99");
+        props.setProperty("plan.annual.days", "365");
+        props.setProperty("plan.trial.days", "14");
+        props.setProperty("plan.currency", "USD");
 
         // Try to load from file
         File configFile = new File("application.properties");
@@ -43,6 +50,36 @@ public final class AppConfig {
             } catch (IOException e) {
                 System.err.println("[AppConfig] Impossible de charger application.properties: " + e.getMessage());
             }
+        }
+
+        // Environment variable overrides (useful in Docker and CI)
+        applyEnv("DIARY_HOST", "diary.host");
+        applyEnv("DIARY_PORT", "diary.port");
+        applyEnv("API_PORT", "api.port");
+        applyEnv("ADMIN_API_PORT", "admin.api.port");
+        applyEnv("ADMIN_SECRET", "admin.secret");
+        applyEnv("JWT_SECRET", "jwt.secret");
+        applyEnv("DB_URL", "db.url");
+        applyEnv("DB_USER", "db.user");
+        applyEnv("DB_PASSWORD", "db.password");
+        applyEnv("H2_CONSOLE_ENABLED", "h2.console.enabled");
+        applyEnv("H2_CONSOLE_PORT", "h2.console.port");
+        applyEnv("LOG_LEVEL", "log.level");
+        applyEnv("STREAMING_MAX_CONNECTIONS_PER_IP", "streaming.max.connections.per.ip");
+        applyEnv("STREAMING_MAX_CONCURRENT_CLIENTS", "streaming.max.concurrent.clients");
+        applyEnv("VIDEOS_DIRECTORY", "videos.directory");
+        applyEnv("PLAN_MONTHLY_PRICE", "plan.monthly.price");
+        applyEnv("PLAN_MONTHLY_DAYS", "plan.monthly.days");
+        applyEnv("PLAN_ANNUAL_PRICE", "plan.annual.price");
+        applyEnv("PLAN_ANNUAL_DAYS", "plan.annual.days");
+        applyEnv("PLAN_TRIAL_DAYS", "plan.trial.days");
+        applyEnv("PLAN_CURRENCY", "plan.currency");
+    }
+
+    private void applyEnv(String envKey, String propKey) {
+        String v = System.getenv(envKey);
+        if (v != null && !v.isBlank()) {
+            props.setProperty(propKey, v.trim());
         }
     }
 
@@ -66,6 +103,14 @@ public final class AppConfig {
         return "true".equalsIgnoreCase(props.getProperty(key, "false").trim());
     }
 
+    public double getDouble(String key, double fallback) {
+        try {
+            return Double.parseDouble(props.getProperty(key, String.valueOf(fallback)).trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
     public String getDiaryHost()     { return getString("diary.host"); }
     public int    getDiaryPort()     { return getInt("diary.port"); }
     public int    getApiPort()       { return getInt("api.port"); }
@@ -82,5 +127,12 @@ public final class AppConfig {
     public boolean isH2ConsoleEnabled() { return getBoolean("h2.console.enabled"); }
     public int    getH2ConsolePort() { return getInt("h2.console.port"); }
     public int    getMaxConnectionsPerIp() { return getInt("streaming.max.connections.per.ip"); }
+    public int    getMaxConcurrentClients() { return getInt("streaming.max.concurrent.clients"); }
     public String getVideosDirectory() { return getString("videos.directory"); }
+    public double getPlanMonthlyPrice() { return getDouble("plan.monthly.price", 9.99); }
+    public int    getPlanMonthlyDays()  { return getInt("plan.monthly.days"); }
+    public double getPlanAnnualPrice()  { return getDouble("plan.annual.price", 79.99); }
+    public int    getPlanAnnualDays()   { return getInt("plan.annual.days"); }
+    public int    getPlanTrialDays()    { return getInt("plan.trial.days"); }
+    public String getPlanCurrency()     { return getString("plan.currency"); }
 }

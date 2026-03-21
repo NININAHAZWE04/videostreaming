@@ -139,8 +139,15 @@ export async function fetchAdminSubs(status) {
 
 // ── Admin — Payments ───────────────────────────────────────
 export const fetchAdminPayments    = (status) => req(`/api/admin/payments${status ? `?status=${status}` : ''}`)
+export const createAdminPayment    = (body) => req('/api/admin/payments', { method: 'POST', body: JSON.stringify(body) })
 export const approvePayment        = (id, body)    => req(`/api/admin/payments/${id}/approve`, { method: 'POST', body: JSON.stringify(body) })
 export const rejectPayment         = (id, body)    => req(`/api/admin/payments/${id}/reject`,  { method: 'POST', body: JSON.stringify(body) })
+
+// ── Admin — Settings & Plans ───────────────────────────────
+export const fetchAdminSettings    = () => req('/api/admin/settings')
+export const updateAdminSettings   = (body) => req('/api/admin/settings', { method: 'PUT', body: JSON.stringify(body) })
+export const fetchAdminPlans       = () => req('/api/admin/plans')
+export const updateAdminPlan       = (plan, body) => req(`/api/admin/plans/${plan}`, { method: 'PUT', body: JSON.stringify(body) })
 
 // ── SSE ───────────────────────────────────────────────────
 export function createEventSource(path, handlers) {

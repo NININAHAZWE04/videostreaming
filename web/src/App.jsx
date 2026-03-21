@@ -97,6 +97,7 @@ function AuthModal({mode:initMode='login', onClose, onSuccess, context}) {
 
 /* ── Subscription Modal ─────────────────────────────────────── */
 function SubscriptionModal({user, onClose, onSuccess}) {
+  const [plans, setPlans] = useState(auth.getPlans())
   const [selected,setSelected]=useState('monthly')
   const [proofNote,setProofNote]=useState('')
   const [step,setStep]=useState('plans') // plans | payment | confirm
@@ -104,6 +105,7 @@ function SubscriptionModal({user, onClose, onSuccess}) {
   const [err,setErr]=useState('')
 
   useEffect(()=>{ const fn=e=>{if(e.key==='Escape')onClose()}; window.addEventListener('keydown',fn); document.body.style.overflow='hidden'; return()=>{window.removeEventListener('keydown',fn);document.body.style.overflow=''} },[onClose])
+  useEffect(()=>{ auth.fetchPlans().then(p=>setPlans(p)).catch(()=>{}) },[])
 
   const handleTrial=async()=>{
     if(!user) { onClose(); return }
@@ -115,7 +117,7 @@ function SubscriptionModal({user, onClose, onSuccess}) {
 
   const handlePayment=async()=>{
     setLoading(true); setErr('')
-    const plan=auth.PLANS.find(p=>p.id===selected)
+    const plan=plans.find(p=>p.id===selected)
     try {
       await auth.requestPayment(plan.id, plan.price, 'USD', proofNote)
       setStep('confirm')
@@ -124,7 +126,7 @@ function SubscriptionModal({user, onClose, onSuccess}) {
   }
 
   const trialAvailable = user && user.canStartTrial
-  const currentPlan = auth.PLANS.find(p=>p.id===selected)
+  const currentPlan = plans.find(p=>p.id===selected)
 
   if(step==='confirm') return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{background:'rgba(0,0,0,0.88)',backdropFilter:'blur(8px)'}} onClick={onClose}>
@@ -172,7 +174,7 @@ function SubscriptionModal({user, onClose, onSuccess}) {
 
             {/* Plan cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
-              {auth.PLANS.filter(p=>p.id!=='trial').map(plan=>(
+              {plans.filter(p=>p.id!=='trial').map(plan=>(
                 <div key={plan.id} onClick={()=>setSelected(plan.id)}
                   className="relative rounded-xl p-5 cursor-pointer transition-all"
                   style={{background:selected===plan.id?'rgba(229,9,20,0.12)':'rgba(255,255,255,0.04)',border:`1px solid ${selected===plan.id?'rgba(229,9,20,0.5)':'rgba(255,255,255,0.08)'}`,outline:selected===plan.id?'none':'none'}}>
@@ -197,7 +199,7 @@ function SubscriptionModal({user, onClose, onSuccess}) {
 
             {err&&<p className="text-xs text-red-400 mb-3">{err}</p>}
             <button className="w-full py-3 rounded-xl font-bold text-sm" style={{background:'#e50914',color:'#fff'}} onClick={()=>setStep('payment')} disabled={!selected}>
-              Continuer avec le plan {auth.PLANS.find(p=>p.id===selected)?.name}
+              Continuer avec le plan {plans.find(p=>p.id===selected)?.name}
             </button>
           </div>
         )}
@@ -261,6 +263,8 @@ function SkeletonCard() {
 
 /* ── Video Card ─────────────────────────────────────────────── */
 function VideoCard({video,onPlay,onSelect,progress=0,user,onNeedAuth}) {
+      const canPlay = !!video.url
+  const [hover,setHover]=useState(false)
   const locked = !video.free && !auth.userHasAccess(user)
   const pct = progress>0&&video.durationSec>0?(progress/video.durationSec)*100:0
 
@@ -271,9 +275,12 @@ function VideoCard({video,onPlay,onSelect,progress=0,user,onNeedAuth}) {
   }
 
   return (
-    <div className="video-card group flex-none w-48 md:w-56 cursor-pointer" onClick={()=>locked?onNeedAuth('premium'):onPlay(video)}>
+    <div className="video-card group flex-none w-48 md:w-56 cursor-pointer" onMouseEnter={()=>setHover(true)} onMouseLeave={()=>setHover(false)} onClick={()=>locked?onNeedAuth('premium'):(canPlay?onPlay(video):onSelect(video))}>
       <div className="relative aspect-video rounded-md overflow-hidden bg-[#1a1a1a]">
         <Thumb video={video}/>
+        {hover && !locked && canPlay && (
+          <video className="absolute inset-0 w-full h-full object-cover" src={video.url} autoPlay muted loop playsInline />
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"/>
         <div className="absolute top-2 left-2 flex items-center gap-1 bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-sm uppercase tracking-wider">
           <span className="live-pulse inline-block w-1.5 h-1.5 rounded-full bg-white"/>Live
@@ -285,7 +292,7 @@ function VideoCard({video,onPlay,onSelect,progress=0,user,onNeedAuth}) {
         {video.formattedDuration&&<div className="absolute bottom-3 right-2 text-[10px] font-mono text-white/80 bg-black/60 px-1.5 py-0.5 rounded">{video.formattedDuration}</div>}
         {!locked && (
           <div className="absolute inset-0 flex items-end justify-between p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-            <button className="w-9 h-9 rounded-full bg-white flex items-center justify-center shadow-lg hover:bg-white/90 transition-colors" onClick={handlePlay} aria-label="Lire">
+            <button className="w-9 h-9 rounded-full bg-white flex items-center justify-center shadow-lg hover:bg-white/90 transition-colors" onClick={canPlay ? handlePlay : (e=>{e.stopPropagation();onSelect(video)})} aria-label="Lire">
               <PlayIcon className="w-4 h-4 text-black ml-0.5"/>
             </button>
             <button className="w-9 h-9 rounded-full bg-black/70 border border-white/30 flex items-center justify-center hover:bg-black/90 transition-colors"
@@ -594,6 +601,7 @@ export default function App() {
   const [draftApiUrl,setDraftApiUrl]=useState(apiUrl)
   const [apiError,setApiError]=useState('')
   const [videos,setVideos]=useState([])
+  const [highlights, setHighlights] = useState({ newest: [], trendingWeek: [], comingSoon: [] })
   const [categories,setCategories]=useState([])
   const [loading,setLoading]=useState(true)
   const [connected,setConnected]=useState(false)
@@ -631,17 +639,36 @@ export default function App() {
 
   const fetchAll=useCallback(async()=>{
     try {
-      const[vR,cR]=await Promise.all([fetch(`${apiUrl}/api/videos`),fetch(`${apiUrl}/api/categories`)])
+      const[vR,cR,hR]=await Promise.all([fetch(`${apiUrl}/api/videos`),fetch(`${apiUrl}/api/categories`),fetch(`${apiUrl}/api/videos/highlights`)])
       if(!vR.ok) throw new Error()
       const vD=await vR.json()
+      const abs = (u) => {
+        if (!u) return null
+        if (u.startsWith('http://') || u.startsWith('https://')) return u
+        if (u.startsWith('/')) return `${apiUrl}${u}`
+        return `${apiUrl}/${u}`
+      }
       const normalizedVideos = (Array.isArray(vD.videos)?vD.videos:[]).map(v=>({
         ...v,
-        url: v.url || v.streamUrl || (v.id && v.active ? `${apiUrl}/api/media/${v.id}/stream` : null),
-        thumbnailUrl: v.thumbnailUrl || (v.id && v.filePath ? `${apiUrl}/api/media/${v.id}/thumbnail` : null),
+        url: abs(v.url || v.streamUrl) || (v.id && v.active ? `${apiUrl}/api/media/${v.id}/stream` : null),
+        thumbnailUrl: abs(v.thumbnailUrl) || (v.id && v.filePath ? `${apiUrl}/api/media/${v.id}/thumbnail` : null),
       }))
       setVideos(normalizedVideos)
       setConnected(true)
       if(cR.ok){const cD=await cR.json();setCategories(Array.isArray(cD)?cD:[])}
+      if (hR.ok) {
+        const hD = await hR.json()
+        const mapList = (list) => (Array.isArray(list) ? list : []).map(v => ({
+          ...v,
+          url: abs(v.url || v.streamUrl) || (v.id && v.active ? `${apiUrl}/api/media/${v.id}/stream` : null),
+          thumbnailUrl: abs(v.thumbnailUrl) || (v.id && v.filePath ? `${apiUrl}/api/media/${v.id}/thumbnail` : null),
+        }))
+        setHighlights({
+          newest: mapList(hD?.newest),
+          trendingWeek: mapList(hD?.trendingWeek),
+          comingSoon: mapList(hD?.comingSoon),
+        })
+      }
     } catch{setConnected(false)}
     finally{setLoading(false)}
   },[apiUrl])
@@ -693,9 +720,10 @@ export default function App() {
     return[...map.entries()].map(([,v])=>v).sort((a,b)=>b.videos.length-a.videos.length)
   },[filtered,activeCat,query])
 
-  const newReleases=useMemo(()=>([...filtered].sort((a,b)=>(b.id||0)-(a.id||0)).slice(0,12)),[filtered])
-  const trendingNow=useMemo(()=>([...filtered].sort((a,b)=>(b.viewCount||0)-(a.viewCount||0)).slice(0,12)),[filtered])
+  const newReleases=useMemo(()=>(highlights.newest?.length ? highlights.newest : [...filtered].sort((a,b)=>(b.id||0)-(a.id||0)).slice(0,12)),[filtered, highlights.newest])
+  const trendingNow=useMemo(()=>(highlights.trendingWeek?.length ? highlights.trendingWeek : [...filtered].sort((a,b)=>(b.viewCount||0)-(a.viewCount||0)).slice(0,12)),[filtered, highlights.trendingWeek])
   const premiumPicks=useMemo(()=>(filtered.filter(v=>!v.free).sort((a,b)=>(b.downloadCount||0)-(a.downloadCount||0)).slice(0,12)),[filtered])
+  const comingSoon=useMemo(()=>(Array.isArray(highlights.comingSoon) ? highlights.comingSoon : []),[highlights.comingSoon])
 
   // Free content row (always visible)
   const freeVideos=useMemo(()=>filtered.filter(v=>v.free),[filtered])
@@ -723,6 +751,7 @@ export default function App() {
     pushRow('Contenu gratuit','✓ Sans abonnement',freeVideos,{allowSingle:true})
     pushRow('Nouveautes','Nouveau',newReleases)
     pushRow('Tendances','Top vues',trendingNow)
+    pushRow('Coming soon','Bientot',comingSoon)
     pushRow('Premium du moment','Abonnés',premiumPicks)
     catRows.forEach(r=>pushRow(r.name,null,r.videos))
 
@@ -730,7 +759,7 @@ export default function App() {
       pushRow('Catalogue',null,filtered,{allowSingle:true})
     }
     return rows
-  },[query,activeCat,loading,history,freeVideos,newReleases,trendingNow,premiumPicks,catRows,filtered])
+  },[query,activeCat,loading,history,freeVideos,newReleases,trendingNow,comingSoon,premiumPicks,catRows,filtered])
 
   return (
     <div className="min-h-screen bg-[#141414] text-white overflow-x-hidden flex flex-col">

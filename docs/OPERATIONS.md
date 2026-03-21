@@ -42,14 +42,14 @@ cd videostreaming
 ### Vérification rapide
 ```bash
 # Santé de l'API
-curl http://localhost:8081/api/health
+curl http://localhost:18081/api/health
 
 # Liste des vidéos actives
-curl http://localhost:8081/api/videos
+curl http://localhost:18081/api/videos
 
 # Token admin (remplacer par votre secret)
 curl -H "Authorization: Bearer changeme-admin-secret" \
-     http://localhost:8081/api/admin/stats
+     http://localhost:18081/api/admin/stats
 ```
 
 ---
@@ -58,7 +58,7 @@ curl -H "Authorization: Bearer changeme-admin-secret" \
 
 ### Prérequis
 - Docker 24+ et Docker Compose V2
-- Ports libres : 1099, 5173, 5174, 8080, 8081, 8082
+- Ports libres : 12999, 55173, 55174, 18080, 18081, 18082
 
 ### Lancement
 
@@ -137,11 +137,11 @@ docker cp /chemin/local/film.mp4 vs-backend:/app/videos/
 ```properties
 # Annuaire RMI
 diary.host=localhost
-diary.port=1099
+diary.port=12999
 
 # APIs
-api.port=8080           # Public API (lecture seule)
-admin.api.port=8081     # Admin API (auth + admin + SSE)
+api.port=18080           # Public API (lecture seule)
+admin.api.port=18081     # Admin API (auth + admin + SSE)
 
 # Sécurité — CHANGER en production !
 admin.secret=votre-secret-fort-ici
@@ -160,10 +160,11 @@ db.password=
 
 # H2 Console web (désactiver en production)
 h2.console.enabled=true
-h2.console.port=8082
+h2.console.port=18082
 
 # Streaming
 streaming.max.connections.per.ip=5
+streaming.max.concurrent.clients=150
 
 # Logging : DEBUG | INFO | WARN | ERROR
 log.level=INFO
@@ -176,19 +177,19 @@ log.level=INFO
 ### Créer un compte admin via API
 ```bash
 # 1. Créer un compte normal
-curl -X POST http://localhost:8081/api/auth/register \
+curl -X POST http://localhost:18081/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@example.com","username":"Admin","password":"motdepasse123"}'
 
 # 2. L'élever en admin (avec le secret admin)
-curl -X PUT http://localhost:8081/api/admin/users/1 \
+curl -X PUT http://localhost:18081/api/admin/users/1 \
   -H "Authorization: Bearer changeme-admin-secret" \
   -H "Content-Type: application/json" \
   -d '{"role":"admin"}'
 ```
 
 ### Console H2 (développement uniquement)
-URL : http://localhost:8082
+URL : http://localhost:18082
 - JDBC URL : `jdbc:h2:./data/videostreaming`
 - Utilisateur : `sa` / Mot de passe : *(vide)*
 
@@ -202,21 +203,21 @@ URL : http://localhost:8082
 docker compose logs backend
 
 # Problèmes fréquents :
-# - Port 1099 déjà utilisé → changer PORT_DIARY_RMI dans .env
-# - Port 8081 déjà utilisé → changer PORT_API_ADMIN dans .env
+# - Port 12999 déjà utilisé → changer PORT_DIARY_RMI dans .env
+# - Port 18081 déjà utilisé → changer PORT_API_ADMIN dans .env
 # - Fichier application.properties manquant → ./setup.sh
 ```
 
 ### "Diary unavailable" dans l'API
 ```bash
 # Vérifier que le Diary est démarré
-curl -sf http://localhost:8081/api/health | python3 -m json.tool
+curl -sf http://localhost:18081/api/health | python3 -m json.tool
 # → activeStreams, totalVideos, etc.
 ```
 
 ### Thumbnails non affichés
 - Vérifier que `ffmpeg` est installé dans le conteneur : `docker exec vs-backend ffmpeg -version`
-- L'endpoint thumbnail est sur le StreamingServer : `http://HOST:PORT_STREAM/thumbnail`
+- L'endpoint thumbnail est aussi exposé via API : `http://localhost:18081/api/media/{id}/thumbnail`
 
 ### Paiement approuvé mais abonnement non activé
 - Vérifier les logs : `docker compose logs -f backend | grep PaymentRepository`
@@ -238,12 +239,12 @@ curl -sf http://localhost:8081/api/health | python3 -m json.tool
 
 ```bash
 # Healthcheck permanent
-watch -n 5 'curl -s http://localhost:8081/api/health | python3 -m json.tool'
+watch -n 5 'curl -s http://localhost:18081/api/health | python3 -m json.tool'
 
 # Logs structurés en temps réel
 docker compose logs -f backend | grep -E "\[INFO\]|\[WARN\]|\[ERROR\]"
 
 # Stats dashboard
 curl -s -H "Authorization: Bearer $ADMIN_SECRET" \
-  http://localhost:8081/api/admin/stats | python3 -m json.tool
+  http://localhost:18081/api/admin/stats | python3 -m json.tool
 ```

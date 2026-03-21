@@ -39,7 +39,8 @@ public final class SubscriptionRepository {
         // Cancel any existing active subscription
         cancelAll(userId);
 
-        LocalDateTime ends = LocalDateTime.now().plusDays(14);
+        int trialDays = new PlanRepository().findByPlan("trial").map(PlanRepository.PlanRow::durationDays).orElse(14);
+        LocalDateTime ends = LocalDateTime.now().plusDays(Math.max(1, trialDays));
         return insert(userId, "trial", "active", ends, true, "Trial 14 jours gratuit");
     }
 

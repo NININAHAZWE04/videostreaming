@@ -1,6 +1,6 @@
 # API Reference
 
-Base URL : `http://localhost:8081`
+Base URL : `http://localhost:18081`
 
 ---
 
@@ -14,6 +14,9 @@ Base URL : `http://localhost:8081`
   "timestamp": "2024-03-16T18:30:00",
   "totalVideos": 12,
   "activeStreams": 3,
+  "activeClients": 24,
+  "maxClients": 150,
+  "maxPerIp": 5,
   "jvmUsedMb": 128,
   "jvmTotalMb": 512,
   "sseClients": 2
@@ -68,6 +71,16 @@ event: stream_stopped
 data: {"title":"Film"}
 ```
 
+### `GET /api/videos/highlights`
+Sections éditoriales pour le client (nouveautés, tendances, coming soon).
+```json
+{
+  "newest": [...],
+  "trendingWeek": [...],
+  "comingSoon": [...]
+}
+```
+
 ---
 
 ## Auth Client (JWT requis)
@@ -119,10 +132,20 @@ Démarre le trial 14j. Erreur 409 si déjà utilisé.
 ### `POST /api/auth/payment/request`
 ```json
 // Request
-{"plan":"monthly","amount":"9.99","currency":"USD","proofNote":"Payé à Jean le 16/03"}
+{"plan":"monthly","proofNote":"Payé à Jean le 16/03"}
 
 // Response 201
 {"paymentId":3,"status":"pending","message":"Demande envoyée..."}
+```
+
+> Le montant et la durée sont désormais calculés côté serveur depuis `subscription_plans`.
+
+### `GET /api/auth/plans`
+```json
+[
+  {"id":"monthly","price":9.99,"durationDays":30,"currency":"USD"},
+  {"id":"annual","price":79.99,"durationDays":365,"currency":"USD"}
+]
 ```
 
 ### `GET /api/auth/payment/status`
@@ -136,7 +159,7 @@ Démarre le trial 14j. Erreur 409 si déjà utilisé.
 {"videoId":"5"}
 
 // Response 200
-{"token":"abc123...","downloadUrl":"http://localhost:8081/api/download?token=abc123","expiresIn":"2 heures"}
+{"token":"abc123...","downloadUrl":"http://localhost:18081/api/download?token=abc123","expiresIn":"2 heures"}
 ```
 
 ### `GET /api/download?token=<token>`
@@ -202,6 +225,7 @@ GET /api/admin/subscriptions[?status=active|expired|cancelled]
 | Méthode | Endpoint | Description |
 |---------|----------|-------------|
 | GET | `/api/admin/payments[?status=pending]` | Liste des paiements |
+| POST | `/api/admin/payments` | Saisie manuelle de paiement |
 | POST | `/api/admin/payments/{id}/approve` | Approuver (active abonnement) |
 | POST | `/api/admin/payments/{id}/reject` | Rejeter |
 
@@ -209,6 +233,20 @@ GET /api/admin/subscriptions[?status=active|expired|cancelled]
 POST /api/admin/payments/3/approve
 {"adminNote":"Cash reçu","approvedBy":"admin"}
 ```
+
+### Paramètres runtime
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| GET | `/api/admin/settings` | Limites runtime + devise |
+| PUT | `/api/admin/settings` | Met à jour les limites serveur |
+
+### Plans (gestion des prix)
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| GET | `/api/admin/plans` | Liste des plans/prix/durées |
+| PUT | `/api/admin/plans/{plan}` | Met à jour un plan |
 
 ---
 
@@ -222,7 +260,7 @@ POST /api/admin/payments/3/approve
 | 404 | Ressource introuvable |
 | 405 | Méthode HTTP non supportée |
 | 409 | Conflit (email déjà utilisé, trial déjà utilisé) |
-| 429 | Rate limit IP dépassé |
+| 429 | Limite de connexions atteinte (IP ou globale) |
 | 500 | Erreur serveur interne |
 
 Toutes les erreurs retournent `{"error":"message explicite"}`.

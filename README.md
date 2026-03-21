@@ -20,16 +20,16 @@ Trois composants essentiels :
 
 | Composant | Rôle | Port |
 |-----------|------|------|
-| **Diary Server** | Annuaire RMI — répertoire de tous les streams actifs | 1099 |
+| **Diary Server** | Annuaire RMI — répertoire de tous les streams actifs | 12999 |
 | **Streaming Server** | Serveur HTTP par vidéo — Range requests, stats, thumbnails | 5000+ |
-| **Admin API** | REST + Auth + SSE — gestion complète | 8081 |
+| **Admin API** | REST + Auth + SSE — gestion complète | 18081 |
 
 ```
-DiaryServer (RMI:1099)
+DiaryServer (RMI:12999)
        │
        ├── StreamingServer (HTTP:5000+)  ←→  Client Swing / VLC
        │
-AdminApiServer (HTTP:8081)
+AdminApiServer (HTTP:18081)
        ├── /api/videos        ← Client Web React
        ├── /api/admin/*       ← Panel Admin React
        ├── /api/auth/*        ← Authentification JWT
@@ -55,6 +55,9 @@ AdminApiServer (HTTP:8081)
 - **Utilisateurs** — liste, accorder/révoquer abonnement, suspendre compte
 - **Abonnements** — vue chronologique, alertes expiration imminente
 - **Paiements cash** — approbation/rejet avec activation automatique de l'abonnement
+- **Saisie manuelle de paiements** — encodage back-office + statut immédiat
+- **Gestion des prix** — plans dynamiques depuis la base (monthly/annual/trial/free)
+- **Paramètres runtime** — limites IP et clients simultanés configurables depuis l'admin
 - **Logs live** — terminal SSE avec colorisation par niveau
 
 ### Client Web React (`/web`)
@@ -93,11 +96,11 @@ AdminApiServer (HTTP:8081)
 ./start-web-api.sh
 
 # 6. Terminal 5 — Client web React
-./start-web-frontend.sh 8081
+./start-web-frontend.sh 18081
 # → http://localhost:5173
 
 # 7. Terminal 6 — Panel Admin React
-./start-admin-frontend.sh 8081
+./start-admin-frontend.sh 18081
 # → http://localhost:5174
 ```
 
@@ -119,10 +122,10 @@ docker compose logs -f backend
 Accès :
 | URL | Service |
 |-----|---------|
-| http://localhost:5173 | Client Web |
-| http://localhost:5174 | Panel Admin |
-| http://localhost:8081/api/health | API Health |
-| http://localhost:8082 | H2 Console (dev) |
+| http://localhost:55173 | Client Web (docker) |
+| http://localhost:55174 | Panel Admin (docker) |
+| http://localhost:18081/api/health | API Health |
+| http://localhost:18082 | H2 Console (dev) |
 
 ---
 
@@ -163,6 +166,7 @@ jwt.secret=votre-secret-jwt-64-chars-min
 plan.monthly.price=9.99
 plan.annual.price=79.99
 streaming.max.connections.per.ip=5
+streaming.max.concurrent.clients=150
 log.level=INFO
 ```
 

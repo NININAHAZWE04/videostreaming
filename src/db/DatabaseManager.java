@@ -114,7 +114,29 @@ public final class DatabaseManager {
                 )
             """);
 
+            // APP SETTINGS (runtime config managed by admin)
+            s.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    setting_key   VARCHAR(120) PRIMARY KEY,
+                    setting_value VARCHAR(1000) NOT NULL,
+                    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """);
+
+            // SUBSCRIPTION PLANS (prices and durations)
+            s.execute("""
+                CREATE TABLE IF NOT EXISTS subscription_plans (
+                    plan          VARCHAR(30) PRIMARY KEY,
+                    price         DECIMAL(10,2) NOT NULL,
+                    duration_days INTEGER      NOT NULL,
+                    currency      VARCHAR(10)  DEFAULT 'USD',
+                    is_active     BOOLEAN      DEFAULT TRUE,
+                    updated_at    TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+                )
+            """);
+
             seedDefaultCategories(c);
+            seedDefaultSettings(c);
 
             // USERS
             s.execute("""
@@ -187,7 +209,55 @@ public final class DatabaseManager {
             // Mark schema v2
             s.execute("MERGE INTO schema_version (version) KEY(version) VALUES (1)");
             s.execute("MERGE INTO schema_version (version) KEY(version) VALUES (2)");
-            AppLogger.info(COMPONENT, "Schéma v2 OK (users, subscriptions, payments, download_tokens)");
+            s.execute("MERGE INTO schema_version (version) KEY(version) VALUES (3)");
+            seedDefaultPlans(c);
+            AppLogger.info(COMPONENT, "Schéma v3 OK (settings, plans, users, subscriptions, payments, download_tokens)");
+        }
+    }
+
+    private void seedDefaultPlans(Connection c) throws SQLException {
+        String countSql = "SELECT COUNT(*) FROM subscription_plans";
+        try (Statement s = c.createStatement(); ResultSet rs = s.executeQuery(countSql)) {
+            if (rs.next() && rs.getInt(1) > 0) return;
+        }
+
+        AppConfig cfg = AppConfig.get();
+        String[][] defaults = {
+            {"monthly", String.valueOf(cfg.getPlanMonthlyPrice()), String.valueOf(cfg.getPlanMonthlyDays()), cfg.getPlanCurrency(), "true"},
+            {"annual",  String.valueOf(cfg.getPlanAnnualPrice()),  String.valueOf(cfg.getPlanAnnualDays()),  cfg.getPlanCurrency(), "true"},
+            {"trial",   "0.0",                                     String.valueOf(cfg.getPlanTrialDays()),   cfg.getPlanCurrency(), "true"},
+            {"free",    "0.0",                                     "-1",                                     cfg.getPlanCurrency(), "true"}
+        };
+
+        String merge = "MERGE INTO subscription_plans (plan, price, duration_days, currency, is_active) KEY(plan) VALUES (?,?,?,?,?)";
+        try (PreparedStatement ps = c.prepareStatement(merge)) {
+            for (String[] p : defaults) {
+                ps.setString(1, p[0]);
+                ps.setDouble(2, Double.parseDouble(p[1]));
+                ps.setInt(3, Integer.parseInt(p[2]));
+                ps.setString(4, p[3]);
+                ps.setBoolean(5, Boolean.parseBoolean(p[4]));
+                ps.executeUpdate();
+            }
+        }
+    }
+
+    private void seedDefaultSettings(Connection c) throws SQLException {
+        AppConfig cfg = AppConfig.get();
+        String[][] defaults = {
+            {"streaming.max.connections.per.ip", String.valueOf(cfg.getMaxConnectionsPerIp())},
+            {"streaming.max.concurrent.clients", String.valueOf(cfg.getMaxConcurrentClients())},
+            {"plan.currency", cfg.getPlanCurrency()}
+        };
+
+        try (PreparedStatement ps = c.prepareStatement(
+            "MERGE INTO app_settings (setting_key, setting_value) KEY(setting_key) VALUES (?, ?)"
+        )) {
+            for (String[] kv : defaults) {
+                ps.setString(1, kv[0]);
+                ps.setString(2, kv[1]);
+                ps.executeUpdate();
+            }
         }
     }
 

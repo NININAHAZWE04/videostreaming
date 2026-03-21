@@ -202,6 +202,40 @@ public final class VideoRepository {
         }
     }
 
+    public List<VideoMetadata> findInactiveLimit(int limit) {
+        String sql = SELECT_ALL + " WHERE v.is_active = FALSE ORDER BY v.created_at DESC LIMIT ?";
+        try (Connection c = db.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, limit);
+            return mapAll(ps.executeQuery());
+        } catch (SQLException e) {
+            AppLogger.error(COMPONENT, "findInactiveLimit error: " + e.getMessage());
+            return List.of();
+        }
+    }
+
+    public List<VideoMetadata> findMostViewedSinceDays(int days, int limit) {
+        String sql = """
+            SELECT v.*, c.name as cat_name, c.color as cat_color
+            FROM videos v
+            LEFT JOIN categories c ON v.category_id = c.id
+            WHERE v.is_active = TRUE
+            ORDER BY (
+                SELECT COUNT(*) FROM view_events ve
+                WHERE ve.video_id = v.id
+                  AND ve.viewed_at >= DATEADD('DAY', ?, CURRENT_TIMESTAMP)
+            ) DESC, v.view_count DESC, v.created_at DESC
+            LIMIT ?
+        """;
+        try (Connection c = db.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setInt(1, -Math.abs(days));
+            ps.setInt(2, limit);
+            return mapAll(ps.executeQuery());
+        } catch (SQLException e) {
+            AppLogger.error(COMPONENT, "findMostViewedSinceDays error: " + e.getMessage());
+            return List.of();
+        }
+    }
+
     public boolean deleteById(int id) {
         String sql = "DELETE FROM videos WHERE id=?";
         try (Connection c = db.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {

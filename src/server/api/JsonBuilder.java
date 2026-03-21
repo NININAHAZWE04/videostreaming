@@ -84,6 +84,16 @@ public final class JsonBuilder {
 
     /** Sérialise un VideoMetadata en JSON complet */
     public static String videoToJson(db.VideoMetadata vm) {
+        String streamUrl = vm.getStreamUrl();
+        if ((streamUrl == null || streamUrl.isBlank()) && vm.getId() > 0 && vm.isActive()) {
+            streamUrl = "/api/media/" + vm.getId() + "/stream";
+        }
+
+        String thumbnailUrl = vm.getThumbnailUrl();
+        if ((thumbnailUrl == null || thumbnailUrl.isBlank()) && vm.getId() > 0 && vm.getFilePath() != null && !vm.getFilePath().isBlank()) {
+            thumbnailUrl = "/api/media/" + vm.getId() + "/thumbnail";
+        }
+
         return obj()
             .put("id",              vm.getId())
             .put("title",           vm.getTitle())
@@ -108,8 +118,8 @@ public final class JsonBuilder {
             .put("downloadCount",   vm.getDownloadCount())
             .put("free",            vm.isFree())
             .put("active",          vm.isActive())
-            .putNullable("streamUrl",    vm.getStreamUrl())
-            .putNullable("thumbnailUrl", vm.getThumbnailUrl())
+            .putNullable("streamUrl",    streamUrl)
+            .putNullable("thumbnailUrl", thumbnailUrl)
             .build();
     }
 

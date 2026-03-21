@@ -24,6 +24,7 @@ services:
       - ADMIN_SECRET=${ADMIN_SECRET:-changeme-admin-secret}
       - JWT_SECRET=${JWT_SECRET:-changeme-jwt-secret}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - STREAMING_MAX_CONCURRENT_CLIENTS=${STREAMING_MAX_CONCURRENT_CLIENTS:-150}
     ports:
       - "${PORT_DIARY_RMI:-12999}:12999"
       - "${PORT_API_PUBLIC:-18080}:18080"

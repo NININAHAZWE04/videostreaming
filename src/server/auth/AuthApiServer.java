@@ -49,6 +49,7 @@ public final class AuthApiServer {
         server.createContext("/api/auth/payment/request", new PaymentRequestHandler());
         server.createContext("/api/auth/payment/status",  new PaymentStatusHandler());
         server.createContext("/api/auth/download-token",  new DownloadTokenHandler());
+        server.createContext("/api/auth/plans",           new PlansHandler());
         AppLogger.info(LOG, "Contextes auth enregistrés");
     }
 
@@ -190,17 +191,19 @@ public final class AuthApiServer {
 
             Map<String,String> body = parseBody(ex);
             String plan      = body.get("plan");
-            String amountStr = body.get("amount");
             String proof     = body.get("proofNote");
-            String currency  = body.getOrDefault("currency","USD");
+            if (plan == null || plan.isBlank()) { sendJson(ex,400,err("plan requis")); return; }
 
-            if (plan==null||amountStr==null) { sendJson(ex,400,err("plan et amount requis")); return; }
+            PlanRepository planRepo = new PlanRepository();
+            Optional<PlanRepository.PlanRow> planRow = planRepo.findByPlan(plan.trim().toLowerCase(Locale.ROOT));
+            if (planRow.isEmpty() || !planRow.get().active()) {
+                sendJson(ex, 400, err("Plan invalide ou inactif"));
+                return;
+            }
 
-            double amount; int days;
-            try {
-                amount = Double.parseDouble(amountStr);
-                days = SubscriptionRepository.PLAN_DURATIONS.getOrDefault(plan, 30);
-            } catch (NumberFormatException e) { sendJson(ex,400,err("amount invalide")); return; }
+            double amount = planRow.get().price();
+            int days = planRow.get().durationDays();
+            String currency = planRow.get().currency();
 
             PaymentRepository payments = new PaymentRepository();
             int id = payments.submitCashRequest(claims.userId(), amount, currency, plan, days, proof);
@@ -211,6 +214,31 @@ public final class AuthApiServer {
                 .put("status", "pending")
                 .put("message", "Demande envoyée. L'admin validera votre paiement sous 24h.")
                 .build());
+        }
+    }
+
+    // ═══ GET /api/auth/plans ═══════════════════════════════════
+
+    static final class PlansHandler implements HttpHandler {
+        @Override public void handle(HttpExchange ex) throws IOException {
+            if (handleOptions(ex)) return;
+            if (!isMethod(ex, "GET")) { sendJson(ex,405,err("Method Not Allowed")); return; }
+
+            List<PlanRepository.PlanRow> plans = new PlanRepository().findAll();
+            StringBuilder sb = new StringBuilder("[");
+            int written = 0;
+            for (PlanRepository.PlanRow p : plans) {
+                if (!p.active()) continue;
+                if (written++ > 0) sb.append(',');
+                sb.append(JsonBuilder.obj()
+                    .put("id", p.plan())
+                    .put("price", p.price())
+                    .put("durationDays", p.durationDays())
+                    .put("currency", p.currency())
+                    .build());
+            }
+            sb.append(']');
+            sendJson(ex, 200, sb.toString());
         }
     }
 
@@ -289,8 +317,11 @@ public final class AuthApiServer {
                 sendJson(ex, 500, err("Erreur génération token")); return;
             }
 
-            String downloadUrl = "http://localhost:" + AppConfig.get().getAdminApiPort()
-                + "/api/download?token=" + token;
+            String host = ex.getRequestHeaders().getFirst("Host");
+            if (host == null || host.isBlank()) {
+                host = "localhost:" + AppConfig.get().getAdminApiPort();
+            }
+            String downloadUrl = "http://" + host + "/api/download?token=" + token;
             AppLogger.info(LOG, "Token download généré: user=" + claims.email() + " video=" + video.getTitle());
 
             sendJson(ex, 200, JsonBuilder.obj()

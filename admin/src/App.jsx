@@ -31,6 +31,17 @@ const QUALITY_COLORS = { '4K':'#a78bfa','1080p':'#38bdf8','720p':'#34d399','480p
 const fmtBytes = b => b >= 1e9 ? (b/1e9).toFixed(1)+'Go' : b >= 1e6 ? (b/1e6).toFixed(0)+'Mo' : b >= 1e3 ? (b/1e3).toFixed(0)+'Ko' : b+'o'
 const fmtDuration = s => { if (!s) return '--'; const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sc=s%60; return h>0?`${h}:${String(m).padStart(2,'0')}:${String(sc).padStart(2,'0')}`:`${m}:${String(sc).padStart(2,'0')}` }
 const timeAgo = ts => { if (!ts) return '—'; const d=(Date.now()-new Date(ts))/1000; if(d<60)return'à l\'instant'; if(d<3600)return`il y a ${Math.floor(d/60)}min`; if(d<86400)return`il y a ${Math.floor(d/3600)}h`; return`il y a ${Math.floor(d/86400)}j` }
+const normalizeMediaUrl = (url) => {
+  if (!url) return null
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  if (url.startsWith('/')) return `${api.getApiBaseUrl()}${url}`
+  return `${api.getApiBaseUrl()}/${url}`
+}
+const normalizeVideo = (v) => ({
+  ...v,
+  streamUrl: normalizeMediaUrl(v.streamUrl) || (v.id && v.active ? `${api.getApiBaseUrl()}/api/media/${v.id}/stream` : null),
+  thumbnailUrl: normalizeMediaUrl(v.thumbnailUrl) || (v.id ? `${api.getApiBaseUrl()}/api/media/${v.id}/thumbnail` : null),
+})
 
 /* ──────────────────────────────────────────────────────────────
    SHARED COMPONENTS
@@ -136,11 +147,14 @@ function DashboardPage({ health, stats, hourly, loading }) {
       </div>
 
       {/* KPI Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <StatCard label="Vidéos totales" value={stats?.totalVideos ?? '—'} icon={Film} color="var(--brand)" sub="en base de données" />
         <StatCard label="Streams actifs" value={stats?.activeStreams ?? 0} icon={Wifi} color="var(--success)" sub="en diffusion maintenant" />
+        <StatCard label="Clients live" value={stats?.activeClients ?? 0} icon={Users} color="#22d3ee" sub={stats?.maxClients ? `limite ${stats.maxClients}` : 'connectés'} />
         <StatCard label="Vues aujourd'hui" value={stats?.viewsToday ?? 0} icon={Eye} color="#a78bfa" sub="depuis minuit" />
         <StatCard label="Bande passante" value={stats ? fmtBytes(Math.round((stats.bandwidthMb??0)*1048576)) : '—'} icon={Activity} color="var(--warning)" sub="total transmis" />
+        <StatCard label="Utilisateurs" value={stats?.totalUsers ?? 0} icon={UserCheck} color="#60a5fa" sub={`${stats?.subscribedUsers ?? 0} abonnés`} />
+        <StatCard label="Paiements" value={stats?.pendingPayments ?? 0} icon={CreditCard} color="#fbbf24" sub="en attente" />
       </div>
 
       {/* Health details */}
@@ -395,7 +409,8 @@ function VideosPage({ onRefreshStats }) {
     setLoading(true)
     try {
       const [vData, cData] = await Promise.all([api.fetchAdminVideos(), api.fetchAdminCategories()])
-      setVideos(Array.isArray(vData) ? vData : [])
+      const normalized = (Array.isArray(vData) ? vData : []).map(normalizeVideo)
+      setVideos(normalized)
       setCats(Array.isArray(cData) ? cData : [])
     } catch (e) { toast(e.message, 'error') }
     finally { setLoading(false) }
@@ -722,7 +737,7 @@ function MonitoringPage() {
   const load = useCallback(async () => {
     try {
       const [allV, h] = await Promise.all([api.fetchAdminVideos(), api.fetchHealth()])
-      setVideos(Array.isArray(allV) ? allV : [])
+      setVideos((Array.isArray(allV) ? allV : []).map(normalizeVideo))
       setHealth(h)
       setLastRefresh(new Date())
     } catch (e) { toast(e.message,'error') }
@@ -969,6 +984,24 @@ function SettingsPage() {
   const [secret, setSecretLocal] = useState(api.getSecret())
   const [apiBaseUrl, setApiBaseUrl] = useState(api.getApiBaseUrl())
   const [saved, setSaved] = useState(false)
+  const [runtime, setRuntime] = useState({ streamingMaxConnectionsPerIp: 5, streamingMaxConcurrentClients: 150, planCurrency: 'USD' })
+  const [plans, setPlans] = useState([])
+
+  const loadRuntime = useCallback(async () => {
+    try {
+      const [settings, planRows] = await Promise.all([api.fetchAdminSettings(), api.fetchAdminPlans()])
+      if (settings) setRuntime({
+        streamingMaxConnectionsPerIp: settings.streamingMaxConnectionsPerIp ?? 5,
+        streamingMaxConcurrentClients: settings.streamingMaxConcurrentClients ?? 150,
+        planCurrency: settings.planCurrency ?? 'USD',
+      })
+      setPlans(Array.isArray(planRows) ? planRows : [])
+    } catch (e) {
+      toast(e.message, 'error')
+    }
+  }, [])
+
+  useEffect(() => { loadRuntime() }, [loadRuntime])
 
   const save = () => {
     api.setSecret(secret)
@@ -977,6 +1010,26 @@ function SettingsPage() {
     setSaved(true)
     toast('Configuration sauvegardée', 'success')
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  const saveRuntime = async () => {
+    try {
+      await api.updateAdminSettings(runtime)
+      toast('Parametres runtime sauvegardes', 'success')
+      loadRuntime()
+    } catch (e) {
+      toast(e.message, 'error')
+    }
+  }
+
+  const savePlan = async (plan) => {
+    try {
+      await api.updateAdminPlan(plan.plan, { price: String(plan.price), durationDays: String(plan.durationDays), currency: plan.currency, active: String(plan.active) })
+      toast(`Plan ${plan.plan} mis a jour`, 'success')
+      loadRuntime()
+    } catch (e) {
+      toast(e.message, 'error')
+    }
   }
 
   return (
@@ -1006,6 +1059,56 @@ function SettingsPage() {
         </button>
       </div>
 
+      <div className="card p-5 space-y-4">
+        <div className="flex items-center gap-3 mb-1">
+          <Activity style={{ color: '#34d399', width: 18, height: 18 }} />
+          <h2 className="font-medium" style={{ color: 'var(--text)' }}>Limites et systeme</h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="label">Connexions max / IP</label>
+            <input className="input" value={runtime.streamingMaxConnectionsPerIp} onChange={e => setRuntime(p => ({ ...p, streamingMaxConnectionsPerIp: Number(e.target.value) || 1 }))} />
+          </div>
+          <div>
+            <label className="label">Clients simultanes max</label>
+            <input className="input" value={runtime.streamingMaxConcurrentClients} onChange={e => setRuntime(p => ({ ...p, streamingMaxConcurrentClients: Number(e.target.value) || 1 }))} />
+          </div>
+          <div>
+            <label className="label">Devise</label>
+            <input className="input" value={runtime.planCurrency} onChange={e => setRuntime(p => ({ ...p, planCurrency: e.target.value.toUpperCase() }))} />
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={saveRuntime}><Check />Sauvegarder limites</button>
+      </div>
+
+      <div className="card p-5 space-y-3">
+        <div className="flex items-center gap-3 mb-1">
+          <CreditCard style={{ color: '#a78bfa', width: 18, height: 18 }} />
+          <h2 className="font-medium" style={{ color: 'var(--text)' }}>Gestion des prix</h2>
+        </div>
+        <div className="space-y-3">
+          {plans.map((p, idx) => (
+            <div key={p.plan} className="rounded-lg p-3 border" style={{ borderColor: 'var(--border)', background: 'var(--surface2)' }}>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+                <div>
+                  <label className="label">Plan</label>
+                  <input className="input" value={p.plan} disabled />
+                </div>
+                <div>
+                  <label className="label">Prix</label>
+                  <input className="input" value={p.price} onChange={e => setPlans(rows => rows.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))} />
+                </div>
+                <div>
+                  <label className="label">Duree (jours)</label>
+                  <input className="input" value={p.durationDays} onChange={e => setPlans(rows => rows.map((r, i) => i === idx ? { ...r, durationDays: e.target.value } : r))} />
+                </div>
+                <button className="btn btn-primary" onClick={() => savePlan(p)}><Check />Appliquer</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="card p-5 space-y-3">
         <div className="flex items-center gap-3 mb-2">
           <Layers style={{ color: '#a78bfa', width: 18, height: 18 }} />
@@ -1014,8 +1117,8 @@ function SettingsPage() {
         {[
           ['Backend',    'Java 21 — RMI + HTTP'],
           ['Base de données', 'H2 2.2.220 — embedded'],
-          ['API public', 'HTTP :8080 — GET /api/videos'],
-          ['API admin',  'HTTP :8081 — Bearer auth'],
+          ['API public', 'HTTP :18080 — GET /api/videos'],
+          ['API admin',  'HTTP :18081 — Bearer auth'],
           ['SSE',        'Temps réel — push events'],
           ['Frontend',   'React 18 + Tailwind CSS'],
         ].map(([k, v]) => (

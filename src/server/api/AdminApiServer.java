@@ -20,12 +20,16 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.sql.Types;
 import java.nio.charset.Charset;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
@@ -55,6 +59,11 @@ public final class AdminApiServer {
 
     private static final String LOG = "AdminApiServer";
     private static volatile int activeStreamCount = 0;
+    private static final AtomicInteger activeClientStreams = new AtomicInteger(0);
+    private static final ConcurrentMap<Integer, AtomicInteger> viewersPerVideo = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<String, AtomicInteger> mediaIpConnections = new ConcurrentHashMap<>();
+    private static volatile int maxConcurrentClients = AppConfig.get().getMaxConcurrentClients();
+    private static volatile int maxConnectionsPerIp = AppConfig.get().getMaxConnectionsPerIp();
 
     private AdminApiServer() {}
 
@@ -66,6 +75,7 @@ public final class AdminApiServer {
 
         // Init DB
         DatabaseManager.getInstance();
+        reloadRuntimeSettings();
 
         // Wire AppLogger → SSE log stream
         AppLogger.setListener(entry -> SseEventBus.get().publishLogEntry(entry.toJson()));
@@ -74,6 +84,7 @@ public final class AdminApiServer {
 
         // ── Public endpoints ───────────────────────────────────────────────
         server.createContext("/api/videos",     new VideosHandler());
+        server.createContext("/api/videos/highlights", new VideoHighlightsHandler());
         server.createContext("/api/categories", new CategoriesHandler());
         server.createContext("/api/health",     new HealthHandler());
         server.createContext("/api/media",      new MediaHandler());
@@ -91,6 +102,8 @@ public final class AdminApiServer {
         server.createContext("/api/admin/users",         new AdminUsersHandler());
         server.createContext("/api/admin/subscriptions", new AdminSubscriptionsHandler());
         server.createContext("/api/admin/payments",      new AdminPaymentsHandler());
+        server.createContext("/api/admin/settings",      new AdminSettingsHandler());
+        server.createContext("/api/admin/plans",         new AdminPlansHandler());
 
         server.setExecutor(Executors.newCachedThreadPool());
 
@@ -139,6 +152,30 @@ public final class AdminApiServer {
         }
     }
 
+    static final class VideoHighlightsHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange ex) throws IOException {
+            if (handleOptions(ex)) return;
+            if (!isGet(ex)) { sendJson(ex, 405, err("Method Not Allowed")); return; }
+
+            VideoRepository repo = new VideoRepository();
+            List<VideoMetadata> newest = repo.findAll().stream()
+                .filter(VideoMetadata::isActive)
+                .sorted(Comparator.comparingInt(VideoMetadata::getId).reversed())
+                .limit(16)
+                .toList();
+            List<VideoMetadata> trendingWeek = repo.findMostViewedSinceDays(7, 16);
+            List<VideoMetadata> comingSoon = repo.findInactiveLimit(12);
+
+            String body = JsonBuilder.obj()
+                .putRaw("newest", videosJson(newest))
+                .putRaw("trendingWeek", videosJson(trendingWeek))
+                .putRaw("comingSoon", videosJson(comingSoon))
+                .build();
+            sendJson(ex, 200, body);
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // PUBLIC — /api/categories
     // ═══════════════════════════════════════════════════════════════════════
@@ -181,6 +218,9 @@ public final class AdminApiServer {
                 .put("timestamp", LocalDateTime.now().toString())
                 .put("totalVideos", repo.countTotal())
                 .put("activeStreams", activeStreamCount)
+                .put("activeClients", activeClientStreams.get())
+                .put("maxClients", maxConcurrentClients)
+                .put("maxPerIp", maxConnectionsPerIp)
                 .put("jvmUsedMb", usedMb)
                 .put("jvmTotalMb", totalMb)
                 .put("sseClients", SseEventBus.get().getClientCount())
@@ -491,7 +531,7 @@ public final class AdminApiServer {
                 return;
             }
             if ("thumbnail".equals(action)) {
-                sendJson(ex, 404, err("Thumbnail indisponible"));
+                serveThumbnailFile(ex, file, vm.getId());
                 return;
             }
 
@@ -594,7 +634,8 @@ public final class AdminApiServer {
 
             // Dashboard stats
             StatsRepository.DashboardStats ds = stats.getDashboard(activeStreamCount);
-            VideoRepository vr = new VideoRepository();
+            UserRepository users = new UserRepository();
+            PaymentRepository payments = new PaymentRepository();
 
             StringBuilder topSb = new StringBuilder("[");
             List<VideoMetadata> top = ds.topVideos();
@@ -613,9 +654,14 @@ public final class AdminApiServer {
             String body = JsonBuilder.obj()
                 .put("totalVideos",    ds.totalVideos())
                 .put("activeStreams",  ds.activeStreams())
+                .put("activeClients",  activeClientStreams.get())
+                .put("maxClients",     maxConcurrentClients)
                 .put("viewsToday",     ds.viewsToday())
                 .put("totalViews",     ds.totalViews())
                 .put("bandwidthMb",    ds.totalBandwidthMb())
+                .put("totalUsers",     users.countTotal())
+                .put("subscribedUsers",users.countActive())
+                .put("pendingPayments",payments.countPending())
                 .put("sseClients",     SseEventBus.get().getClientCount())
                 .putRaw("topVideos",   topSb.toString())
                 .build();
@@ -679,6 +725,16 @@ public final class AdminApiServer {
             if (kv.length == 2 && kv[0].equals(key)) return kv[1];
         }
         return null;
+    }
+
+    private static String videosJson(List<VideoMetadata> list) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < list.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append(JsonBuilder.videoToJson(list.get(i)));
+        }
+        sb.append(']');
+        return sb.toString();
     }
 
     /** Minimal JSON body parser — handles flat {"key":"value"} objects */
@@ -787,6 +843,31 @@ public final class AdminApiServer {
 
     private static void serveVideoFile(HttpExchange ex, Path file, VideoMetadata vm) throws IOException {
         addCors(ex);
+
+        int current = activeClientStreams.incrementAndGet();
+        String clientIp = ex.getRemoteAddress() != null && ex.getRemoteAddress().getAddress() != null
+            ? ex.getRemoteAddress().getAddress().getHostAddress()
+            : "unknown";
+        AtomicInteger ipCount = mediaIpConnections.computeIfAbsent(clientIp, k -> new AtomicInteger(0));
+        int currentIp = ipCount.incrementAndGet();
+
+        AtomicInteger perVideo = viewersPerVideo.computeIfAbsent(vm.getId(), k -> new AtomicInteger(0));
+        perVideo.incrementAndGet();
+        if (current > maxConcurrentClients) {
+            perVideo.decrementAndGet();
+            activeClientStreams.decrementAndGet();
+            ipCount.decrementAndGet();
+            sendJson(ex, 429, err("Limite de clients simultanes atteinte"));
+            return;
+        }
+        if (currentIp > maxConnectionsPerIp) {
+            perVideo.decrementAndGet();
+            activeClientStreams.decrementAndGet();
+            ipCount.decrementAndGet();
+            sendJson(ex, 429, err("Limite de connexions par IP atteinte"));
+            return;
+        }
+
         long fileLength = Files.size(file);
         String rangeHeader = ex.getRequestHeaders().getFirst("Range");
         long start = 0;
@@ -822,16 +903,24 @@ public final class AdminApiServer {
         }
         ex.sendResponseHeaders(partial ? 206 : 200, contentLength);
 
-        try (var raf = new RandomAccessFile(file.toFile(), "r"); OutputStream os = ex.getResponseBody()) {
-            raf.seek(start);
-            byte[] buffer = new byte[64 * 1024];
-            long remaining = contentLength;
-            while (remaining > 0) {
-                int read = raf.read(buffer, 0, (int) Math.min(buffer.length, remaining));
-                if (read < 0) break;
-                os.write(buffer, 0, read);
-                remaining -= read;
+        try {
+            try (var raf = new RandomAccessFile(file.toFile(), "r"); OutputStream os = ex.getResponseBody()) {
+                raf.seek(start);
+                byte[] buffer = new byte[64 * 1024];
+                long remaining = contentLength;
+                while (remaining > 0) {
+                    int read = raf.read(buffer, 0, (int) Math.min(buffer.length, remaining));
+                    if (read < 0) break;
+                    os.write(buffer, 0, read);
+                    remaining -= read;
+                }
             }
+        } finally {
+            perVideo.decrementAndGet();
+            if (perVideo.get() <= 0) viewersPerVideo.remove(vm.getId(), perVideo);
+            ipCount.decrementAndGet();
+            if (ipCount.get() <= 0) mediaIpConnections.remove(clientIp, ipCount);
+            activeClientStreams.decrementAndGet();
         }
 
         new VideoRepository().incrementViewCount(vm.getId());
@@ -847,6 +936,46 @@ public final class AdminApiServer {
         if (lower.endsWith(".mov")) return "video/quicktime";
         if (lower.endsWith(".m4v")) return "video/x-m4v";
         return "application/octet-stream";
+    }
+
+    private static void serveThumbnailFile(HttpExchange ex, Path videoFile, int videoId) throws IOException {
+        addCors(ex);
+        Path cacheDir = Path.of(System.getProperty("java.io.tmpdir"), "videostreaming-thumbnails");
+        Files.createDirectories(cacheDir);
+        Path target = cacheDir.resolve("v-" + videoId + "-" + Math.abs(videoFile.toString().hashCode()) + ".jpg");
+
+        if (!Files.exists(target) || Files.getLastModifiedTime(target).toMillis() < Files.getLastModifiedTime(videoFile).toMillis()) {
+            boolean ok = extractThumbnail(videoFile, target, "00:00:10") || extractThumbnail(videoFile, target, "00:00:01");
+            if (!ok) {
+                sendJson(ex, 404, err("Thumbnail indisponible"));
+                return;
+            }
+        }
+
+        byte[] bytes = Files.readAllBytes(target);
+        ex.getResponseHeaders().set("Content-Type", "image/jpeg");
+        ex.getResponseHeaders().set("Cache-Control", "public, max-age=300");
+        ex.sendResponseHeaders(200, bytes.length);
+        try (OutputStream os = ex.getResponseBody()) { os.write(bytes); }
+    }
+
+    private static boolean extractThumbnail(Path videoFile, Path target, String seekAt) {
+        ProcessBuilder pb = new ProcessBuilder(
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", seekAt,
+            "-i", videoFile.toAbsolutePath().toString(),
+            "-frames:v", "1",
+            "-q:v", "3",
+            target.toAbsolutePath().toString()
+        );
+        pb.redirectErrorStream(true);
+        try {
+            Process p = pb.start();
+            p.waitFor(20, TimeUnit.SECONDS);
+            return p.exitValue() == 0 && Files.exists(target) && Files.size(target) > 0;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static String unescape(String s) {
@@ -896,7 +1025,8 @@ public final class AdminApiServer {
             if (method.equals("DELETE")) {
                 int id = extractId(path);
                 if (id < 0) { sendJson(ex, 400, err("ID invalide")); return; }
-                sendJson(ex, repo.delete(id) ? 200 : 404, repo.delete(id) ? "{\"deleted\":true}" : err("Non trouvé"));
+                boolean deleted = repo.delete(id);
+                sendJson(ex, deleted ? 200 : 404, deleted ? "{\"deleted\":true}" : err("Non trouvé"));
                 return;
             }
 
@@ -1012,6 +1142,54 @@ public final class AdminApiServer {
                 return;
             }
 
+            // POST /api/admin/payments - manual entry by admin
+            if (method.equals("POST") && path.endsWith("/payments")) {
+                Map<String,String> body = parseJsonBody(ex);
+                int userId;
+                try { userId = Integer.parseInt(body.getOrDefault("userId", "0")); }
+                catch (NumberFormatException e) { sendJson(ex, 400, err("userId invalide")); return; }
+                if (userId <= 0) { sendJson(ex, 400, err("userId requis")); return; }
+
+                String plan = body.getOrDefault("plan", "monthly").trim().toLowerCase(Locale.ROOT);
+                PlanRepository planRepo = new PlanRepository();
+                Optional<PlanRepository.PlanRow> planRow = planRepo.findByPlan(plan);
+                if (planRow.isEmpty() || !planRow.get().active()) {
+                    sendJson(ex, 400, err("Plan invalide ou inactif"));
+                    return;
+                }
+
+                double amount = planRow.get().price();
+                String amountStr = body.get("amount");
+                if (amountStr != null && !amountStr.isBlank()) {
+                    try { amount = Double.parseDouble(amountStr); } catch (NumberFormatException ignored) {}
+                }
+                int days = planRow.get().durationDays();
+                String daysStr = body.get("durationDays");
+                if (daysStr != null && !daysStr.isBlank()) {
+                    try { days = Integer.parseInt(daysStr); } catch (NumberFormatException ignored) {}
+                }
+                String currency = body.getOrDefault("currency", planRow.get().currency());
+                String status = body.getOrDefault("status", "approved").trim().toLowerCase(Locale.ROOT);
+                if (!status.equals("approved") && !status.equals("pending") && !status.equals("rejected")) {
+                    sendJson(ex, 400, err("status invalide"));
+                    return;
+                }
+
+                PaymentRepository pr = new PaymentRepository();
+                String note = body.getOrDefault("proofNote", "Saisie manuelle admin");
+                int paymentId = pr.submitCashRequest(userId, amount, currency, plan, days, note);
+
+                if ("approved".equals(status)) {
+                    boolean ok = pr.approve(paymentId, body.getOrDefault("approvedBy", "admin"), body.getOrDefault("adminNote", "Paiement saisi manuellement"));
+                    if (!ok) { sendJson(ex, 500, err("Paiement créé mais approbation échouée")); return; }
+                } else if ("rejected".equals(status)) {
+                    pr.reject(paymentId, body.getOrDefault("approvedBy", "admin"), body.getOrDefault("adminNote", "Paiement rejeté manuellement"));
+                }
+
+                sendJson(ex, 201, JsonBuilder.obj().put("paymentId", paymentId).put("status", status).build());
+                return;
+            }
+
             // POST /api/admin/payments/{id}/approve
             if (method.equals("POST") && path.endsWith("/approve")) {
                 int id = extractIdFromPath(path, -2);
@@ -1041,7 +1219,139 @@ public final class AdminApiServer {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // ADMIN — /api/admin/settings
+    // ═══════════════════════════════════════════════════════════════════════
+
+    static final class AdminSettingsHandler implements HttpHandler {
+        @Override public void handle(HttpExchange ex) throws IOException {
+            if (handleOptions(ex)) return;
+            if (!isAdmin(ex)) return;
+            String method = ex.getRequestMethod().toUpperCase(Locale.ROOT);
+
+            SettingsRepository repo = new SettingsRepository();
+            if ("GET".equals(method)) {
+                Map<String, String> settings = repo.findAll();
+                String body = JsonBuilder.obj()
+                    .put("streamingMaxConnectionsPerIp", parseInt(settings.get("streaming.max.connections.per.ip"), AppConfig.get().getMaxConnectionsPerIp()))
+                    .put("streamingMaxConcurrentClients", parseInt(settings.get("streaming.max.concurrent.clients"), AppConfig.get().getMaxConcurrentClients()))
+                    .put("planCurrency", settings.getOrDefault("plan.currency", AppConfig.get().getPlanCurrency()))
+                    .build();
+                sendJson(ex, 200, body);
+                return;
+            }
+
+            if ("PUT".equals(method) || "POST".equals(method)) {
+                Map<String,String> body = parseJsonBody(ex);
+                if (body.containsKey("streamingMaxConnectionsPerIp")) {
+                    int v = clamp(parseInt(body.get("streamingMaxConnectionsPerIp"), AppConfig.get().getMaxConnectionsPerIp()), 1, 1000);
+                    repo.upsert("streaming.max.connections.per.ip", String.valueOf(v));
+                }
+                if (body.containsKey("streamingMaxConcurrentClients")) {
+                    int v = clamp(parseInt(body.get("streamingMaxConcurrentClients"), AppConfig.get().getMaxConcurrentClients()), 1, 10000);
+                    repo.upsert("streaming.max.concurrent.clients", String.valueOf(v));
+                }
+                if (body.containsKey("planCurrency")) {
+                    String c = body.get("planCurrency");
+                    if (c != null && !c.isBlank()) repo.upsert("plan.currency", c.trim().toUpperCase(Locale.ROOT));
+                }
+                reloadRuntimeSettings();
+                sendJson(ex, 200, "{\"updated\":true}");
+                return;
+            }
+
+            sendJson(ex, 405, err("Method Not Allowed"));
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ADMIN — /api/admin/plans
+    // ═══════════════════════════════════════════════════════════════════════
+
+    static final class AdminPlansHandler implements HttpHandler {
+        @Override public void handle(HttpExchange ex) throws IOException {
+            if (handleOptions(ex)) return;
+            if (!isAdmin(ex)) return;
+
+            String method = ex.getRequestMethod().toUpperCase(Locale.ROOT);
+            String path = ex.getRequestURI().getPath();
+            PlanRepository repo = new PlanRepository();
+
+            if ("GET".equals(method)) {
+                List<PlanRepository.PlanRow> plans = repo.findAll();
+                StringBuilder sb = new StringBuilder("[");
+                for (int i = 0; i < plans.size(); i++) {
+                    if (i > 0) sb.append(',');
+                    PlanRepository.PlanRow p = plans.get(i);
+                    sb.append(JsonBuilder.obj()
+                        .put("plan", p.plan())
+                        .put("price", p.price())
+                        .put("durationDays", p.durationDays())
+                        .put("currency", p.currency())
+                        .put("active", p.active())
+                        .build());
+                }
+                sb.append(']');
+                sendJson(ex, 200, sb.toString());
+                return;
+            }
+
+            if (("PUT".equals(method) || "POST".equals(method)) && path.contains("/api/admin/plans/")) {
+                String plan = path.substring(path.lastIndexOf('/') + 1).trim().toLowerCase(Locale.ROOT);
+                if (plan.isBlank()) { sendJson(ex, 400, err("plan invalide")); return; }
+
+                Map<String, String> body = parseJsonBody(ex);
+                Optional<PlanRepository.PlanRow> current = repo.findByPlan(plan);
+                double price = current.map(PlanRepository.PlanRow::price).orElse(0.0);
+                int days = current.map(PlanRepository.PlanRow::durationDays).orElse(30);
+                String currency = current.map(PlanRepository.PlanRow::currency).orElse(AppConfig.get().getPlanCurrency());
+                boolean active = current.map(PlanRepository.PlanRow::active).orElse(true);
+
+                if (body.containsKey("price")) {
+                    try { price = Math.max(0.0, Double.parseDouble(body.get("price"))); } catch (Exception ignored) {}
+                }
+                if (body.containsKey("durationDays")) {
+                    try { days = Integer.parseInt(body.get("durationDays")); } catch (Exception ignored) {}
+                }
+                if (body.containsKey("currency") && body.get("currency") != null && !body.get("currency").isBlank()) {
+                    currency = body.get("currency").trim().toUpperCase(Locale.ROOT);
+                }
+                if (body.containsKey("active")) active = "true".equalsIgnoreCase(String.valueOf(body.get("active")));
+
+                boolean ok = repo.upsert(plan, price, days, currency, active);
+                if (!ok) { sendJson(ex, 500, err("Mise à jour plan échouée")); return; }
+                sendJson(ex, 200, "{\"updated\":true}");
+                return;
+            }
+
+            sendJson(ex, 405, err("Method Not Allowed"));
+        }
+    }
+
     // ─── Extra helper: extract ID from path segment ─────────────────────────
+    private static void reloadRuntimeSettings() {
+        SettingsRepository repo = new SettingsRepository();
+        maxConnectionsPerIp = clamp(
+            repo.getInt("streaming.max.connections.per.ip", AppConfig.get().getMaxConnectionsPerIp()),
+            1,
+            1000
+        );
+        maxConcurrentClients = clamp(
+            repo.getInt("streaming.max.concurrent.clients", AppConfig.get().getMaxConcurrentClients()),
+            1,
+            10000
+        );
+    }
+
+    private static int parseInt(String value, int fallback) {
+        if (value == null || value.isBlank()) return fallback;
+        try { return Integer.parseInt(value.trim()); } catch (NumberFormatException e) { return fallback; }
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
     private static int extractIdFromPath(String path, int segment) {
         String[] parts = path.split("/");
         try {
