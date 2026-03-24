@@ -1,3 +1,5 @@
+[🇫🇷 FR](README.md) | **🇬🇧 EN**
+
 <div align="center">
 
 # 🎬 VideoStreaming Platform
