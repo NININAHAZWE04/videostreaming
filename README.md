@@ -1,5 +1,5 @@
 <div align="center">
-
+[FR] | [EN](README_EN.md)
 # 🎬 VideoStreaming Platform
 
 **Plateforme de streaming vidéo distribuée en Java — avec authentification, abonnements, téléchargement sécurisé et panel d'administration complet.**
