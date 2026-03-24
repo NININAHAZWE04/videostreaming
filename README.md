@@ -1,6 +1,6 @@
-[FR] | [EN](README_EN.md)
+**🇫🇷 FR** | [🇬🇧 EN](README_EN.md)
 <div align="center">
-# 🎬 VideoStreaming Platform
+## 🎬 VideoStreaming Platform
 
 **Plateforme de streaming vidéo distribuée en Java — avec authentification, abonnements, téléchargement sécurisé et panel d'administration complet.**
 
