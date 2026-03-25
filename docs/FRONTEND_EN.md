@@ -1,3 +1,6 @@
+[🇫🇷 FR](FRONTEND.md) | **🇬🇧 EN**
+
+
 # Frontend Documentation
 
 Two distinct React applications: **Web Client** (for viewers) and **Admin Panel** (for the administrator).
