@@ -1,3 +1,6 @@
+**🇫🇷 FR** | [🇬🇧 EN](CONTRIBUTING_EN.md)
+
+
 # Contribuer au projet
 
 Merci de votre intérêt ! Toute contribution est la bienvenue.
