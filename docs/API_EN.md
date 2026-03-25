@@ -1,3 +1,6 @@
+[🇫🇷 FR](API.md) | **🇬🇧 EN**
+
+
 # API Reference
 
 Base URL: `http://localhost:18081`
