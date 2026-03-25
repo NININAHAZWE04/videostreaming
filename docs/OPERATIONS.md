@@ -1,3 +1,6 @@
+**🇫🇷 FR** | [🇬🇧 EN](OPERATIONS_EN.md)
+
+
 # Guide d'exploitation
 
 ## Démarrage local (développement)
