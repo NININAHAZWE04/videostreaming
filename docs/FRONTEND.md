@@ -1,3 +1,5 @@
+**🇫🇷 FR** | [🇬🇧 EN](FRONTEND_EN.md)
+
 # Documentation Frontend
 
 Deux applications React distinctes : **Client Web** (pour les spectateurs) et **Panel Admin** (pour l'administrateur).
