@@ -1,3 +1,6 @@
+[🇫🇷 FR](OPERATIONS.md) | **🇬🇧 EN**
+
+
 # Operations Guide
 
 ## Local Startup (Development)
