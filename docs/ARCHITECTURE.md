@@ -1,3 +1,4 @@
+**🇫🇷 FR** | [🇬🇧 EN](ARCHITECTURE_EN.md)
 
 
 # Architecture technique
@@ -9,14 +10,14 @@
 │                     CLIENT LAYER                            │
 │  ┌───────────────┐  ┌───────────────┐  ┌────────────────┐   │
 │  │ Client Web    │  │  Panel Admin  │  │  Client Swing  │   │
-│  │ React :5173   │  │  React :5174  │  │  (VLC)         │   │
+│  │ React :55173  │  │  React 55174  │  │  (VLC)         │   │
 │  └───────┬───────┘  └───────┬───────┘  └───────┬────────┘   │
 └──────────┼───────────────────┼──────────────────┼───────────┘
            │ HTTP              │ HTTP+Bearer       │ RMI
 ┌──────────▼───────────────────▼──────────────────▼───────────┐
 │                     API LAYER                               │
 │  ┌─────────────────────────────────────────────────────┐    │
-│  │             AdminApiServer (:8081)                  │    │
+│  │             AdminApiServer (:18081)                 │    │
 │  │  /api/videos   /api/categories  /api/health         │    │
 │  │  /api/events   /api/logs        /api/download       │    │
 │  │  /api/auth/*   /api/admin/*                         │    │
