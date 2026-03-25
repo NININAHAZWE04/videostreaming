@@ -1,3 +1,6 @@
+[🇫🇷 FR](CONTRIBUTING.md) | **🇬🇧 EN**
+
+
 # Contributing to the Project
 
 Thank you for your interest! All contributions are welcome.
